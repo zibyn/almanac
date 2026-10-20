@@ -37,7 +37,7 @@
 ```
 
 - `hint` 可选，告诉智能体下一步怎么改。全部错误码见第 10 章。
-- 任何工具都可能返回：`INVALID_ARGS`、`STORE_NEWER`（第 2 章）、`REMOTE_UNREACHABLE`、`VERSION_MISMATCH`（第 8 章）。写工具还可能返回 `NO_WRITER`（第 9 章）与 `STORE_BUSY`（第 2 章）。
+- 任何工具都可能返回：`INVALID_ARGS`、`STORE_NEWER`（第 2 章）、`REMOTE_UNREACHABLE`、`UNAUTHORIZED`、`VERSION_MISMATCH`（第 8 章）。写工具还可能返回 `NO_WRITER`（第 9 章）、`STORE_BUSY`（第 2 章）与 `ALREADY_APPLIED`（第 8 章）。
 - 写工具全部检查通过才写日志：一次调用＝一个事务，要么整体生效，要么什么都不写。
 
 ### 作用域过滤
