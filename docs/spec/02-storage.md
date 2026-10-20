@@ -103,7 +103,7 @@ almanac/
 [清除（Purge）](../../GLOSSARY.md)落实 [ADR 0001](../adr/0001-purge-rewrites-the-log.md)，命令见第 4 章，墓碑格式见第 1 章。
 
 1. 对 `lock` 加排他 `flock`。
-2. 读出 `events.jsonl`，把被清除内容的正文替换为墓碑，写出 `log/events.jsonl.tmp`。
+2. 读出 `events.jsonl`，按第 1 章「清除与墓碑」替换与抹去字段（证据的 `excerpt` 与定位字段，记忆的 `text` 与撤回原因），写出 `log/events.jsonl.tmp`。
 3. `fsync` 临时文件。
 4. rename 覆盖 `events.jsonl`。
 5. `fsync` `log/` 目录。
@@ -112,5 +112,3 @@ almanac/
 
 - 不做自动备份。CLI 在完成后提醒：外部备份里的副本需要人自己处理。
 - 事务行的其他字段与事件顺序保持不变，id 不变。
-
-> **待定**（[被清除记忆的状态与墓碑保留字段](https://github.com/zibyn/almanac/issues/23)）：墓碑之外哪些字段随之抹去。

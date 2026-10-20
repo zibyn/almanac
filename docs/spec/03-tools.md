@@ -90,7 +90,7 @@
 | `query` | string? | — | 省略则只按过滤条件列出，按最近一次记录或附证时间倒序 |
 | `kind` | `memory` \| `evidence` | `memory` | |
 | `scope`、`all` | | | 见「作用域过滤」；`kind=evidence` 时不适用 |
-| `status` | 状态值数组 | `["active"]` | `active` / `superseded` / `retracted` / `unsupported` |
+| `status` | 状态值数组 | `["active"]` | `active` / `superseded` / `retracted` / `unsupported` / `purged`；已清除的没有全文字段，只在省略 `query` 时可能列出 |
 | `epistemic` | 认知状态值数组? | — | `observed` / `user_stated` / `inferred` |
 | `writer` | string? | — | Writer 的 `name` |
 | `cites` | string? | — | 证据 id：只返回当前引用它的记忆 |
@@ -164,9 +164,9 @@
 
 `Evidence`：`id`、`kind: "evidence"`、`excerpt`、`source`（第 1 章）、`recorded`（`Recorded`）、`check`（`Check`）、`cited_by`。
 
-被清除的证据以墓碑 `purged: { at, reason, by }` 代替 `excerpt`（第 1 章）。
+被清除的证据以墓碑 `purged: { at, reason, by }` 代替 `excerpt`，`source` 只剩 `type`（第 1 章）。
 
-> **待定**（[被清除记忆的状态与墓碑保留字段](https://github.com/zibyn/almanac/issues/23)）：正文被清除的记忆在 `get` 中返回哪些字段。
+已清除的记忆照常返回，`status` 为 `purged`，以同样的墓碑代替 `text`，其余字段与派生关系不变；`retraction` 若有，`reason` 换成墓碑。`search` 的结果项同此。
 
 ## review
 
