@@ -1,2 +1,2 @@
 # almanac
-Beliefs change. Evidence remains.
+Memories change. Evidence remains.
