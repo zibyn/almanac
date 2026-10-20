@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>almanac 工具面草案（PROTOTYPE）</title>
+<style>
+  :root { --fg:#1d1d1f; --mute:#6e6e73; --line:#e3e3e8; --bg:#fafafa; --card:#fff; --accent:#3a5bd9; --bad:#c0392b; --warn:#b7791f; --ok:#2f855a; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.6 -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; color:var(--fg); background:var(--bg); }
+  header { padding:24px 32px 8px; }
+  h1 { margin:0 0 4px; font-size:20px; }
+  .tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:12px; background:#fdecea; color:var(--bad); margin-left:8px; vertical-align:middle; }
+  .intro { color:var(--mute); max-width:900px; }
+  main { display:grid; grid-template-columns: 380px 1fr; gap:24px; padding:16px 32px 48px; }
+  @media (max-width: 960px) { main { grid-template-columns:1fr; padding:16px; } header { padding:16px; } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  h3 { font-size:13px; margin:12px 0 4px; color:var(--mute); font-weight:600; }
+  details { border-top:1px solid var(--line); padding:6px 0; }
+  summary { cursor:pointer; font-weight:600; }
+  summary small { font-weight:400; color:var(--mute); }
+  pre, textarea, code { font:12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  pre { background:#f5f5f7; padding:8px; border-radius:6px; overflow:auto; margin:4px 0; white-space:pre-wrap; word-break:break-all; }
+  textarea { width:100%; min-height:180px; border:1px solid var(--line); border-radius:6px; padding:8px; }
+  select, button { font:inherit; }
+  button { border:1px solid var(--accent); background:#fff; color:var(--accent); border-radius:6px; padding:4px 10px; cursor:pointer; margin:2px 4px 2px 0; }
+  button.primary { background:var(--accent); color:#fff; }
+  button:disabled { opacity:.4; cursor:default; }
+  button.done { border-color:var(--line); color:var(--mute); }
+  .tabs button { border-radius:6px 6px 0 0; }
+  .tabs button.on { background:var(--accent); color:#fff; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  td, th { border-bottom:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; }
+  th { color:var(--mute); font-weight:600; }
+  .st-active { color:var(--ok); } .st-superseded, .st-retracted { color:var(--mute); text-decoration:line-through; }
+  .stale { color:var(--warn); font-weight:600; }
+  .err { color:var(--bad); }
+  .changed { background:#fff8db; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .note { color:var(--mute); font-size:13px; }
+  .step { margin:6px 0; }
+  .step pre { margin-left:24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>almanac 智能体工具面草案<span class="tag">PROTOTYPE · 用完即弃</span></h1>
+  <p class="intro">
+    <b>问题：</b>暴露给智能体的工具（MCP 与 CLI 共用同一套 schema）应该是哪几个、各长什么样，才能让智能体按 agentic search 的方式多轮检索，并且在写入门槛（必引证据、必填作用域与认知状态、取代/撤回/附证）下一次写对？
+    左栏是 6 个工具的 schema 草案；右边可以直接调用（在内存里运行，刷新即清空），也可以按场景一步步走。
+    每次调用后，下方的状态面板会重新渲染，刚变化的行会高亮。
+  </p>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>工具清单（草案）</h2>
+      <p class="note">共同约定：每个工具都接受可选的 <code>project</code>（路径）；不传时依次取 roots/list → CLAUDE_PROJECT_DIR → cwd，再向上找 git 根。Writer 由 almanac 自动填写，不作为参数。CLI 与 MCP 同名：<code>almanac search --json '{…}'</code>。只在 CLI 提供：<code>purge</code>（清除）、<code>context</code>（会话开始注入，规格待定）。</p>
+      <div id="schemas"></div>
+    </section>
+    <section>
+      <h2>环境（不是工具）</h2>
+      <p class="note">模拟外部世界：当前 Writer、项目，以及项目里的文件和网页。可以改动它们，看核验结果怎么变。</p>
+      <div class="row">Writer <select id="writer"><option>Claude Code</option><option>Codex</option><option>Pi</option></select></div>
+      <div id="world"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <div class="tabs" id="tabs"></div>
+      <div id="panel"></div>
+    </section>
+    <section>
+      <h2>最近一次调用</h2>
+      <div id="last"><p class="note">还没有调用。</p></div>
+    </section>
+    <section>
+      <h2>记忆库状态</h2>
+      <div id="state"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+// ===================== 可移植模块：工具面 + 硬检查 =====================
+// 纯逻辑，不碰 DOM。事件日志是唯一事实来源，状态全部由日志推导；核验结果只放在可丢弃的缓存里。
+const Almanac = (() => {
+  const EPISTEMIC = ['observed', 'user_stated', 'inferred'];
+  const SCOPES = ['global', 'project'];
+  const SOURCE_TYPES = ['conversation', 'file', 'web', 'command'];
+  const MAX_TEXT = 500, MAX_EXCERPT = 4096, MAX_GET = 20;
+
+  const norm = s => String(s).normalize('NFC').replace(/\s+/g, ' ').trim();
+  const bytes = s => new TextEncoder().encode(s).length;
+  // shortcut: 字符二元组 + 拉丁词近似分析器，真实实现是 jieba-rs + tantivy
+  const terms = s => {
+    const out = new Set();
+    for (const w of norm(s).toLowerCase().match(/[a-z0-9_.\-]+/g) || []) out.add(w);
+    const cjk = norm(s).replace(/[^一-鿿]+/g, '|').split('|');
+    for (const run of cjk) { if (run.length === 1) out.add(run); for (let i = 0; i + 1 < run.length; i++) out.add(run.slice(i, i + 2)); }
+    return out;
+  };
+  const jaccard = (a, b) => { const A = terms(a), B = terms(b); let n = 0; for (const t of A) if (B.has(t)) n++; return n / (A.size + B.size - n || 1); };
+
+  class ToolError extends Error { constructor(code, message, hint) { super(message); this.code = code; this.hint = hint; } }
+  const fail = (code, message, hint) => { throw new ToolError(code, message, hint); };
+
+  class Store {
+    constructor(env) { this.env = env; this.log = []; this.checks = {}; this.seq = { ev: 0, mem: 0 }; }
+
+    // ---------- 由日志推导 ----------
+    view() {
+      const ev = {}, mem = {};
+      for (const e of this.log) {
+        if (e.type === 'evidence_recorded') ev[e.id] = { ...e.evidence, id: e.id, writer: e.writer, at: e.at, cited_by: [] };
+        if (e.type === 'memory_asserted') mem[e.id] = { id: e.id, text: e.text, scope: e.scope, project: e.project, epistemic: e.epistemic, writer: e.writer, at: e.at, evidence: [...e.evidence], supersedes: e.supersedes, superseded_by: [], corroborations: [], retraction: null };
+        if (e.type === 'corroborated') { mem[e.memory].evidence.push(...e.evidence); mem[e.memory].corroborations.push({ evidence: e.evidence, writer: e.writer, at: e.at }); }
+        if (e.type === 'retracted') mem[e.memory].retraction = { reason: e.reason, writer: e.writer, at: e.at };
+      }
+      for (const m of Object.values(mem)) {
+        for (const s of m.supersedes) mem[s].superseded_by.push(m.id);
+        for (const id of m.evidence) ev[id].cited_by.push(m.id);
+      }
+      for (const m of Object.values(mem)) m.status = m.retraction ? 'retracted' : m.superseded_by.length ? 'superseded' : 'active';
+      return { ev, mem };
+    }
+
+    // ---------- 核验（确定性，结果不进日志） ----------
+    check(e) {
+      if (e.source.type === 'file') {
+        const body = this.env.files[e.source.path];
+        return body == null ? 'unreachable' : norm(body).includes(norm(e.excerpt)) ? 'match' : 'changed';
+      }
+      if (e.source.type === 'web') {
+        const html = this.env.web[e.source.url];
+        if (html == null) return 'unreachable';
+        return norm(html.replace(/<[^>]*>/g, ' ')).includes(norm(e.excerpt)) ? 'match' : 'changed';
+      }
+      return 'unverifiable';
+    }
+    staleOf(m, ev) {
+      const bad = m.evidence.filter(id => ['changed', 'unreachable'].includes(this.checks[id]?.result));
+      return bad.length ? bad.map(id => ({ evidence: id, result: this.checks[id].result })) : null;
+    }
+    lazyCheckFiles(memIds, v) {
+      for (const id of memIds) for (const eid of v.mem[id].evidence) {
+        const e = v.ev[eid];
+        if (e.source.type === 'file') this.checks[eid] = { result: this.check(e), at: this.env.now() }; // 真实实现先比 mtime
+      }
+    }
+
+    projectKey(args) { return args.project || this.env.project; }
+    inScope(m, args, scope) {
+      const p = this.projectKey(args);
+      if (scope === 'global') return m.scope === 'global';
+      if (scope === 'project') return m.scope === 'project' && m.project === p;
+      return m.scope === 'global' || m.project === p; // any = 全局 + 当前项目
+    }
+
+    // ---------- 工具 ----------
+    search(a) {
+      const v = this.view();
+      const kind = a.kind || 'memory', limit = Math.min(a.limit || 10, 50);
+      const q = a.query ? terms(a.query) : null;
+      const score = text => { if (!q) return { score: 0, matched: [] }; const T = terms(text); const matched = [...q].filter(t => T.has(t)); return { score: matched.length / q.size, matched }; };
+      if (kind === 'evidence') {
+        let hits = Object.values(v.ev);
+        if (a.source_type) hits = hits.filter(e => a.source_type.includes(e.source.type));
+        hits = hits.map(e => ({ e, ...score(e.excerpt) })).filter(h => !q || h.score > 0).sort((x, y) => y.score - x.score).slice(0, limit);
+        return { hits: hits.map(({ e, score, matched }) => ({ id: e.id, kind: 'evidence', source_type: e.source.type, excerpt: e.excerpt.slice(0, 120), cited_by: e.cited_by, score: +score.toFixed(2), matched_terms: matched })) };
+      }
+      const statuses = a.status || ['active'];
+      let ms = Object.values(v.mem).filter(m => statuses.includes(m.status) && this.inScope(m, a, a.scope || 'any'));
+      if (a.epistemic) ms = ms.filter(m => a.epistemic.includes(m.epistemic));
+      if (a.writer) ms = ms.filter(m => m.writer === a.writer);
+      if (a.cites) ms = ms.filter(m => m.evidence.includes(a.cites));
+      let hits = ms.map(m => ({ m, ...score(m.text) })).filter(h => !q || h.score > 0).sort((x, y) => y.score - x.score || y.m.at - x.m.at);
+      this.lazyCheckFiles(hits.map(h => h.m.id), v);
+      if (a.stale_only) hits = hits.filter(h => this.staleOf(h.m));
+      hits = hits.slice(0, limit);
+      return { hits: hits.map(({ m, score, matched }) => ({ id: m.id, kind: 'memory', text: m.text, scope: m.scope, status: m.status, epistemic: m.epistemic, writer: m.writer, evidence_count: m.evidence.length, stale: this.staleOf(m), score: +score.toFixed(2), matched_terms: matched })) };
+    }
+
+    get(a) {
+      if (!Array.isArray(a.ids) || !a.ids.length) fail('MISSING_FIELD', 'ids 必填且非空');
+      if (a.ids.length > MAX_GET) fail('TOO_MANY_IDS', `一次最多取 ${MAX_GET} 条`);
+      const v = this.view();
+      this.lazyCheckFiles(a.ids.filter(id => v.mem[id]), v);
+      return { records: a.ids.map(id => {
+        if (v.mem[id]) { const m = v.mem[id]; return { ...m, stale: this.staleOf(m), evidence: m.evidence.map(eid => this.evOut(v.ev[eid])) }; }
+        if (v.ev[id]) return this.evOut(v.ev[id], true);
+        return { id, error: 'NOT_FOUND' };
+      }) };
+    }
+    evOut(e, withCites) {
+      const o = { id: e.id, kind: 'evidence', excerpt: e.excerpt, source: e.source, writer: e.writer, at: e.at, check: this.checks[e.id] || null };
+      if (withCites) o.cited_by = e.cited_by;
+      return o;
+    }
+
+    // 写证据和/或记忆，一次调用原子生效。证据用本地 ref 互相引用。
+    record(a) {
+      const v = this.view(), writer = this.env.writer, at = this.env.now(), p = this.projectKey(a);
+      const evIn = a.evidence || [], memIn = a.memories || [];
+      if (!evIn.length && !memIn.length) fail('MISSING_FIELD', 'evidence 与 memories 至少给一个');
+      const events = [], refMap = {}, evOut = [], memOut = [], seq = { ...this.seq };
+      const fp = e => JSON.stringify([e.source.type, this.locator(e.source, p), norm(e.excerpt)]);
+      const known = {}; for (const e of Object.values(v.ev)) known[fp(e)] = e.id;
+      for (const [i, e] of evIn.entries()) {
+        const at_ = `evidence[${i}]`;
+        if (!e.excerpt) fail('MISSING_FIELD', `${at_}.excerpt 必填`);
+        if (bytes(e.excerpt) > MAX_EXCERPT) fail('EXCERPT_TOO_LONG', `${at_}.excerpt 超过 4 KB`, '只截取能支撑记忆的那一小段');
+        const s = e.source || fail('MISSING_FIELD', `${at_}.source 必填`);
+        if (!SOURCE_TYPES.includes(s.type)) fail('BAD_SOURCE_TYPE', `${at_}.source.type 必须是 ${SOURCE_TYPES.join(' / ')}`);
+        if (s.type === 'conversation' && !['user', 'agent'].includes(s.speaker)) fail('MISSING_FIELD', `${at_}.source.speaker 必填：user 或 agent`);
+        if (s.type === 'file' && (!s.path || s.path.startsWith('/') || s.path.split('/').includes('..'))) fail('FILE_OUTSIDE_PROJECT', `${at_}.source.path 必须是项目根内的相对路径`, '项目外的文件请按 command 类型记录（如 cat 的输出）');
+        if (s.type === 'web' && !/^https?:\/\//.test(s.url || '')) fail('MISSING_FIELD', `${at_}.source.url 必填`);
+        if (s.type === 'command' && (!s.command || s.exit_code == null)) fail('MISSING_FIELD', `${at_}.source.command 与 exit_code 必填`);
+        const src = this.autofill(s), f = fp({ source: src, excerpt: e.excerpt }), existed = !!known[f];
+        const id = known[f] || `ev_${++seq.ev}`;
+        if (!existed) { known[f] = id; events.push({ type: 'evidence_recorded', id, evidence: { excerpt: e.excerpt, source: src }, writer, at }); }
+        if (e.ref) refMap[e.ref] = id;
+        evOut.push({ ref: e.ref, id, deduped: existed });
+      }
+      const claimed = new Set();
+      for (const [i, m] of memIn.entries()) {
+        const at_ = `memories[${i}]`;
+        if (!m.text) fail('MISSING_FIELD', `${at_}.text 必填`);
+        if ([...m.text].length > MAX_TEXT) fail('TEXT_TOO_LONG', `${at_}.text 超过 ${MAX_TEXT} 字`, '一条记忆只写一个论断，拆成多条');
+        if (!SCOPES.includes(m.scope)) fail('SCOPE_INVALID', `${at_}.scope 必须显式给出 global 或 project`);
+        if (!EPISTEMIC.includes(m.epistemic)) fail('MISSING_FIELD', `${at_}.epistemic 必填：observed / user_stated / inferred，没有默认值`);
+        if (!Array.isArray(m.evidence) || !m.evidence.length) fail('NO_EVIDENCE', `${at_}.evidence 至少一条`, '用户说「记住 X」时，这句话本身就是证据');
+        const evIds = m.evidence.map(r => refMap[r] || (v.ev[r] && r) || fail('EVIDENCE_NOT_FOUND', `${at_} 引用的证据 ${r} 不存在`));
+        for (const s of m.supersedes || []) {
+          if (!v.mem[s]) fail('MEMORY_NOT_FOUND', `${at_}.supersedes 中的 ${s} 不存在`);
+          if (v.mem[s].status !== 'active') fail('NOT_ACTIVE', `${s} 已${v.mem[s].status === 'retracted' ? '撤回' : '被取代'}，只有生效的记忆能被取代`, v.mem[s].status === 'superseded' ? `沿取代链看它的后继 ${v.mem[s].superseded_by.join(', ')}` : undefined);
+          claimed.add(s);
+        }
+        const proj = m.scope === 'project' ? p : null;
+        const twin = Object.values(v.mem).find(x => x.status === 'active' && x.scope === m.scope && x.project === proj && norm(x.text) === norm(m.text));
+        if (twin) {
+          const same = twin.evidence.length === evIds.length && evIds.every(id => twin.evidence.includes(id));
+          if (!same) fail('DUPLICATE_TEXT', `同作用域已有正文相同的生效记忆 ${twin.id}，但证据不同`, `改用 corroborate 给 ${twin.id} 附证`);
+          memOut.push({ id: twin.id, deduped: true }); continue;
+        }
+        const id = `mem_${++seq.mem}`;
+        events.push({ type: 'memory_asserted', id, text: m.text, scope: m.scope, project: proj, epistemic: m.epistemic, evidence: evIds, supersedes: m.supersedes || [], writer, at });
+        const similar = Object.values(v.mem)
+          .filter(x => x.status === 'active' && x.scope === m.scope && x.project === proj && !(m.supersedes || []).includes(x.id))
+          .map(x => ({ id: x.id, text: x.text, similarity: +jaccard(x.text, m.text).toFixed(2) }))
+          .filter(x => x.similarity >= 0.15).sort((a, b) => b.similarity - a.similarity).slice(0, 3);
+        memOut.push({ id, deduped: false, similar });
+      }
+      this.log.push(...events); this.seq = seq; // 全部检查通过才落日志：原子
+      return { evidence: evOut, memories: memOut };
+    }
+    locator(s, p) {
+      if (s.type === 'conversation') return [s.speaker, s.session || null];
+      if (s.type === 'file') return [p, s.path];
+      if (s.type === 'web') return [s.url];
+      return [s.command, s.cwd || null];
+    }
+    autofill(s) {
+      const o = { ...s };
+      if (s.type === 'conversation') { o.host = this.env.writer; o.session = o.session || this.env.session; }
+      if (s.type === 'file') o.git_commit = this.env.commit;
+      if (s.type === 'web') o.fetched_at = o.fetched_at || this.env.now();
+      return o;
+    }
+
+    corroborate(a) {
+      const v = this.view();
+      const m = v.mem[a.memory] || fail('MEMORY_NOT_FOUND', `${a.memory} 不存在`);
+      if (m.status !== 'active') fail('NOT_ACTIVE', `${m.id} 不是生效状态，不能附证`);
+      if (!Array.isArray(a.evidence) || !a.evidence.length) fail('NO_EVIDENCE', 'evidence 至少一条（已有证据 id，或内联新证据）');
+      const inline = a.evidence.filter(e => typeof e === 'object');
+      const ids = inline.length ? this.record({ evidence: inline.map((e, i) => ({ ...e, ref: `__${i}` })), project: a.project }).evidence.map(x => x.id) : [];
+      for (const r of a.evidence) if (typeof r === 'string') { if (!this.view().ev[r]) fail('EVIDENCE_NOT_FOUND', `${r} 不存在`); ids.push(r); }
+      const fresh = ids.filter(id => !m.evidence.includes(id));
+      if (fresh.length) this.log.push({ type: 'corroborated', memory: m.id, evidence: fresh, writer: this.env.writer, at: this.env.now() });
+      // shortcut: 内联证据先落日志再检查 id，原型里不回滚，真实实现要放进同一事务
+      return { memory: m.id, added: fresh, already_cited: ids.filter(id => m.evidence.includes(id)) };
+    }
+
+    retract(a) {
+      const v = this.view();
+      const m = v.mem[a.memory] || fail('MEMORY_NOT_FOUND', `${a.memory} 不存在`);
+      if (!a.reason || !a.reason.trim()) fail('MISSING_FIELD', 'reason 必填：说明为什么这条本就错误或不该记');
+      if (m.status !== 'active') fail('NOT_ACTIVE', `${m.id} 已${m.status === 'retracted' ? '撤回' : '被取代'}，是终态`);
+      this.log.push({ type: 'retracted', memory: m.id, reason: a.reason, writer: this.env.writer, at: this.env.now() });
+      return { memory: m.id, status: 'retracted' };
+    }
+
+    verify(a) {
+      const v = this.view();
+      let ms = Object.values(v.mem).filter(m => m.status === 'active');
+      if (a.ids) ms = ms.filter(m => a.ids.includes(m.id));
+      else ms = ms.filter(m => this.inScope(m, a, a.scope || 'any'));
+      const results = [], network = [];
+      for (const eid of new Set(ms.flatMap(m => m.evidence))) {
+        const e = v.ev[eid];
+        if (e.source.type === 'web') { if (a.include_web === false) continue; network.push(e.source.url); }
+        const r = { result: this.check(e), at: this.env.now() };
+        this.checks[eid] = r; results.push({ evidence: eid, source_type: e.source.type, ...r });
+      }
+      return { checked: results, network_requests: network, review: ms.filter(m => this.staleOf(m)).map(m => ({ memory: m.id, text: m.text, stale: this.staleOf(m) })) };
+    }
+
+    call(tool, args) {
+      if (!['search', 'get', 'record', 'corroborate', 'retract', 'verify'].includes(tool)) return { error: { code: 'UNKNOWN_TOOL' } };
+      try { return this[tool](args || {}); }
+      catch (e) { if (e instanceof ToolError) return { error: { code: e.code, message: e.message, ...(e.hint && { hint: e.hint }) } }; throw e; }
+    }
+  }
+  return { Store };
+})();
+
+// ===================== Schema 草案（给人看，也是 MCP inputSchema 的雏形） =====================
+const SCHEMAS = [
+  { name: 'search', ro: true, gist: '词法检索 + 结构化过滤，返回命中与命中词',
+    desc: '在记忆库里检索记忆（默认）或证据。中文分词后的词法匹配，结果附带 matched_terms，便于你换词再搜。默认只返回生效的记忆；本地文件证据会在返回前惰性核验，出问题的记忆带 stale。不联网。',
+    schema: { query: 'string?  // 省略则只按过滤条件列出', kind: '"memory" | "evidence"  = "memory"', scope: '"global" | "project" | "any"  = "any"（全局 + 当前项目）', status: '("active"|"superseded"|"retracted"|"unsupported")[]  = ["active"]', epistemic: '("observed"|"user_stated"|"inferred")[]?', source_type: '("conversation"|"file"|"web"|"command")[]?  // kind=evidence', writer: 'string?', cites: 'evidence_id?  // 哪些记忆引用了这条证据', stale_only: 'bool?', limit: 'int  = 10, ≤ 50', project: 'path?' },
+    returns: '{ hits: [{ id, kind, text|excerpt, scope, status, epistemic, writer, evidence_count, stale, score, matched_terms }] }' },
+  { name: 'get', ro: true, gist: '按 id 取全文与邻居，用于沿链跳转',
+    desc: '按 id 取记忆或证据的完整记录。记忆附带全部证据（含摘录、来源、核验结果）、supersedes / superseded_by、附证历史、撤回原因；证据附带 cited_by。沿这些 id 再调 get 即可追溯。',
+    schema: { ids: 'string[]  // 1..20，可混合记忆与证据', project: 'path?' },
+    returns: '{ records: [Memory | Evidence | { id, error: "NOT_FOUND" }] }' },
+  { name: 'record', ro: false, gist: '写证据和/或记忆（含取代），原子',
+    desc: '写入证据、记忆，或一次写两者（原子：任何一条不过硬检查则整体拒绝）。证据用 ref 在本次调用内被记忆引用，也可引用已有证据 id。更新记忆＝写一条新记忆并在 supersedes 里列出旧记忆；一拆多时把多条新记忆放在同一次调用里。倾向不写：只记以后还会用到、且有证据支撑的论断。区分用户说的话（speaker=user）和你自己说的话。',
+    schema: { evidence: '[{ ref?: string, excerpt: string ≤4KB, source: Source }]?', memories: '[{ text: string ≤500字, scope: "global"|"project", epistemic: "observed"|"user_stated"|"inferred", evidence: (ref|evidence_id)[] ≥1, supersedes?: memory_id[] }]?', project: 'path?' },
+    returns: '{ evidence: [{ ref, id, deduped }], memories: [{ id, deduped, similar: [{ id, text, similarity }] }] }',
+    extra: 'Source =\n  { type:"conversation", speaker:"user"|"agent", session?, turn? }\n| { type:"file", path: 项目根内相对路径, line? }\n| { type:"web", url, fetched_at? }\n| { type:"command", command, cwd?, exit_code }\nhost / git_commit / Writer 由 almanac 自动补。' },
+  { name: 'corroborate', ro: false, gist: '给已有记忆附证，正文不变',
+    desc: '为一条生效记忆追加支撑证据。重读来源后确认记忆仍成立时用它（以来源当前摘录为新证据），或写入时被提示 DUPLICATE_TEXT 时用它。',
+    schema: { memory: 'memory_id', evidence: '(evidence_id | { excerpt, source })[] ≥1', project: 'path?' },
+    returns: '{ memory, added: evidence_id[], already_cited: evidence_id[] }' },
+  { name: 'retract', ro: false, gist: '撤回（即「遗忘」），必带原因',
+    desc: '声明一条生效记忆本就错误或不该记录。记忆仍留在历史里，可用 status 过滤查到。如果只是情况变了，请用 record + supersedes，而不是撤回。不能物理删除；需要抹除敏感内容时，请建议用户在 CLI 运行 almanac purge。',
+    schema: { memory: 'memory_id', reason: 'string  // 必填', project: 'path?' },
+    returns: '{ memory, status: "retracted" }' },
+  { name: 'verify', ro: false, gist: '显式核验来源，含网页（会联网）',
+    desc: '回到证据来源核验摘录是否仍在：match / changed / unreachable / unverifiable。注意：网页证据会对其 URL 发起一次 GET 请求（去标签后匹配摘录）；设 include_web=false 可避免联网。返回「待复核」清单，由你决定附证、取代或撤回。只核证据与来源是否一致，不判断记忆是否成立。',
+    schema: { ids: 'memory_id[]?  // 省略则核验整个作用域', scope: '"global"|"project"|"any" = "any"', include_web: 'bool = true', project: 'path?' },
+    returns: '{ checked: [{ evidence, source_type, result, at }], network_requests: url[], review: [{ memory, text, stale }] }' },
+];
+
+// ===================== 场景 =====================
+const EX = {
+  search: { query: '构建 命令', scope: 'any' },
+  get: { ids: ['mem_1'] },
+  record: { evidence: [{ ref: 'e1', excerpt: '以后 Rust 代码一律用 4 空格缩进', source: { type: 'conversation', speaker: 'user' } }], memories: [{ text: '用户要求 Rust 代码使用 4 空格缩进', scope: 'global', epistemic: 'user_stated', evidence: ['e1'] }] },
+  corroborate: { memory: 'mem_1', evidence: [{ excerpt: '…', source: { type: 'file', path: 'README.md' } }] },
+  retract: { memory: 'mem_1', reason: '' },
+  verify: { scope: 'any' },
+};
+const PREF = EX.record;
+const BUILD = { evidence: [{ ref: 'e1', excerpt: 'cargo build --features cjk', source: { type: 'file', path: 'README.md', line: 12 } }], memories: [{ text: '本项目的构建命令是 cargo build --features cjk', scope: 'project', epistemic: 'observed', evidence: ['e1'] }] };
+const SCENARIOS = [
+  { title: '基本写入与检索', desc: '用户说了一句偏好。智能体在一次 record 里同时写下这句话（证据）和提炼出的记忆，再用 search 找回来，用 get 看它引用的证据。留意：Writer、host 都不是参数，是自动填的。',
+    steps: [['record', PREF], ['search', { query: '缩进' }], ['get', { ids: ['mem_1'] }]] },
+  { title: '文件变了 → 可能过期 → 取代', desc: '记忆引用了 README 里的构建命令。之后 README 被改，search 时惰性核验发现「已变」，结果带上 stale。智能体重读文件，写一条新记忆取代旧的。默认检索不再返回旧记忆，但 get 新记忆能沿 supersedes 找到它。',
+    steps: [['record', BUILD], ['env', 'README 改为 cargo build --all-features', w => { w.files['README.md'] = '# almanac\n\n构建：\n\n    cargo build --all-features\n'; }], ['search', { query: '构建命令' }], ['record', { evidence: [{ ref: 'e1', excerpt: 'cargo build --all-features', source: { type: 'file', path: 'README.md' } }], memories: [{ text: '本项目的构建命令是 cargo build --all-features', scope: 'project', epistemic: 'observed', evidence: ['e1'], supersedes: ['mem_1'] }] }], ['search', { query: '构建命令' }], ['get', { ids: ['mem_2'] }]] },
+  { title: '一拆二与「并发取代」', desc: '一条笼统的记忆要拆成两条：两条新记忆放在同一次 record 里，都 supersedes 同一条旧记忆。随后另一个智能体（换成 Codex）还拿着旧 id，想再取代一次，会被 NOT_ACTIVE 拒绝。问题：#5 说「并发取代合法」，但在单机串行写入下它根本不会发生，这样对吗？',
+    steps: [['record', { evidence: [{ ref: 'e1', excerpt: '"packageManager": "pnpm@9"', source: { type: 'file', path: 'package.json' } }, { ref: 'e2', excerpt: '"test": "vitest"', source: { type: 'file', path: 'package.json' } }], memories: [{ text: '前端用 pnpm 和 vitest', scope: 'project', epistemic: 'observed', evidence: ['e1', 'e2'] }] }],
+      ['record', { memories: [{ text: '前端包管理器是 pnpm', scope: 'project', epistemic: 'observed', evidence: ['ev_1'], supersedes: ['mem_1'] }, { text: '前端测试框架是 vitest', scope: 'project', epistemic: 'observed', evidence: ['ev_2'], supersedes: ['mem_1'] }] }],
+      ['env', 'Writer 切换为 Codex', w => { w.writer = 'Codex'; }],
+      ['record', { memories: [{ text: '前端测试框架是 jest', scope: 'project', epistemic: 'inferred', evidence: ['ev_2'], supersedes: ['mem_1'] }] }]] },
+  { title: '重试、重复与附证', desc: '同一次 record 发两遍：证据和记忆都幂等返回原 id。随后用另一句话作证据、写同样的正文：被拒绝，提示改用 corroborate。最后用 corroborate 附证。同时留意 similar 软提示：写入近似但不相同的记忆时，响应会列出它。',
+    steps: [['record', PREF], ['record', PREF], ['record', { evidence: [{ ref: 'e1', excerpt: '缩进还是 4 个空格，别用 tab', source: { type: 'conversation', speaker: 'user' } }], memories: [{ text: '用户要求 Rust 代码使用 4 空格缩进', scope: 'global', epistemic: 'user_stated', evidence: ['e1'] }] }],
+      ['corroborate', { memory: 'mem_1', evidence: [{ excerpt: '缩进还是 4 个空格，别用 tab', source: { type: 'conversation', speaker: 'user' } }] }],
+      ['record', { evidence: [{ ref: 'e1', excerpt: 'Python 也用 4 空格缩进吧', source: { type: 'conversation', speaker: 'user' } }], memories: [{ text: '用户要求 Python 代码使用 4 空格缩进', scope: 'global', epistemic: 'user_stated', evidence: ['e1'] }] }]] },
+  { title: '应被拒绝的写法', desc: '逐个尝试硬检查：没证据、没写认知状态、引用项目外文件、撤回不给原因、取代已撤回的记忆。每个错误都带 code、原因，能给提示的还带 hint。',
+    steps: [['record', { memories: [{ text: '用户喜欢深色主题', scope: 'global', epistemic: 'user_stated', evidence: [] }] }],
+      ['record', { evidence: [{ ref: 'e1', excerpt: '我喜欢深色主题', source: { type: 'conversation', speaker: 'user' } }], memories: [{ text: '用户喜欢深色主题', scope: 'global', evidence: ['e1'] }] }],
+      ['record', { evidence: [{ ref: 'e1', excerpt: 'alias ll="ls -la"', source: { type: 'file', path: '/home/u/.bashrc' } }] }],
+      ['record', { evidence: [{ ref: 'e1', excerpt: '我喜欢深色主题', source: { type: 'conversation', speaker: 'user' } }], memories: [{ text: '用户喜欢深色主题', scope: 'global', epistemic: 'user_stated', evidence: ['e1'] }] }],
+      ['retract', { memory: 'mem_1', reason: '' }], ['retract', { memory: 'mem_1', reason: '用户只是随口一说，不是长期偏好' }],
+      ['record', { memories: [{ text: '用户喜欢浅色主题', scope: 'global', epistemic: 'inferred', evidence: ['ev_1'], supersedes: ['mem_1'] }] }]] },
+  { title: '网页证据与 verify', desc: '记一条来自网页的事实。search 不会联网，所以网页变了也看不出来；只有显式 verify 才发请求，响应里列出 network_requests 和「待复核」清单。',
+    steps: [['record', { evidence: [{ ref: 'e1', excerpt: 'MSRV is 1.80', source: { type: 'web', url: 'https://docs.example.com/tantivy' } }], memories: [{ text: 'tantivy 当前最低支持 Rust 1.80', scope: 'project', epistemic: 'observed', evidence: ['e1'] }] }],
+      ['env', '网页更新为 MSRV 1.85', w => { w.web['https://docs.example.com/tantivy'] = '<html><body><p>MSRV is 1.85</p></body></html>'; }],
+      ['search', { query: 'tantivy' }], ['verify', {}], ['search', { query: 'tantivy' }]] },
+];
+
+// ===================== 页面外壳 =====================
+const freshWorld = () => ({
+  writer: 'Claude Code', project: '/home/u/almanac', session: 'sess-42', commit: 'a1b2c3d', clock: 0,
+  files: { 'README.md': '# almanac\n\n构建：\n\n    cargo build --features cjk\n', 'package.json': '{ "packageManager": "pnpm@9", "scripts": { "test": "vitest" } }' },
+  web: { 'https://docs.example.com/tantivy': '<html><body><p>MSRV is 1.80</p></body></html>' },
+  now() { return ++this.clock; },
+});
+let world, store, prevView = null, tab = 0, stepIdx = 0;
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pretty = o => esc(JSON.stringify(o, null, 2));
+function reset() { world = freshWorld(); store = new Almanac.Store(world); prevView = null; $('#writer').value = world.writer; $('#last').innerHTML = '<p class="note">已重置。</p>'; render(); }
+
+function invoke(tool, args) {
+  prevView = store.view();
+  world.writer = $('#writer').value;
+  const res = store.call(tool, structuredClone(args));
+  $('#last').innerHTML = `<h3>${world.writer} 调用 ${tool}</h3><pre>${pretty(args)}</pre><h3>${res.error ? '<span class="err">被拒绝</span>' : '返回'}</h3><pre class="${res.error ? 'err' : ''}">${pretty(res)}</pre>`;
+  render();
+}
+function envStep(label, fn) { prevView = store.view(); fn(world); $('#writer').value = world.writer; $('#last').innerHTML = `<h3>环境变化</h3><p>${esc(label)}</p>`; render(); }
+
+function render() {
+  $('#schemas').innerHTML = SCHEMAS.map(s => `<details><summary>${s.name} <small>${s.ro ? '只读' : '写入'} · ${esc(s.gist)}</small></summary>
+    <h3>描述（给模型看的）</h3><p>${esc(s.desc)}</p><h3>参数</h3><pre>${esc(Object.entries(s.schema).map(([k, v]) => `${k}: ${v}`).join('\n'))}</pre>
+    ${s.extra ? `<pre>${esc(s.extra)}</pre>` : ''}<h3>返回</h3><pre>${esc(s.returns)}</pre></details>`).join('');
+  $('#world').innerHTML = `<h3>项目 ${esc(world.project)}</h3>` + Object.entries(world.files).map(([p, b]) => `<b>${esc(p)}</b><pre>${esc(b)}</pre>`).join('') +
+    Object.entries(world.web).map(([u, b]) => `<b>${esc(u)}</b><pre>${esc(b)}</pre>`).join('');
+  $('#tabs').innerHTML = ['自由调用', ...SCENARIOS.map(s => s.title)].map((t, i) => `<button class="${i === tab ? 'on' : ''}" onclick="pickTab(${i})">${esc(t)}</button>`).join('');
+  if (tab === 0) {
+    const cur = $('#tool')?.value || 'record';
+    $('#panel').innerHTML = `<p class="note">选工具、改参数、调用。状态会累积，点「重置」清空。</p>
+      <div class="row"><select id="tool" onchange="$('#args').value=JSON.stringify(EX[this.value],null,2)">${SCHEMAS.map(s => `<option ${s.name === cur ? 'selected' : ''}>${s.name}</option>`).join('')}</select>
+      <button class="primary" onclick="try{invoke($('#tool').value, JSON.parse($('#args').value))}catch(e){alert('参数不是合法 JSON：'+e.message)}">调用</button><button onclick="reset()">重置</button></div>
+      <textarea id="args">${esc(JSON.stringify(EX[cur], null, 2))}</textarea>`;
+  } else {
+    const sc = SCENARIOS[tab - 1];
+    $('#panel').innerHTML = `<p>${esc(sc.desc)}</p><p class="note">开始本场景会先重置记忆库。按顺序点。</p>` + sc.steps.map((st, i) => {
+      const [kind, a, fn] = st; const label = kind === 'env' ? `环境：${a}` : `${kind}`;
+      return `<div class="step"><button class="${i < stepIdx ? 'done' : i === stepIdx ? 'primary' : ''}" ${i !== stepIdx ? 'disabled' : ''} onclick="runStep(${i})">${i + 1}. ${esc(label)}</button>${kind === 'env' ? '' : `<pre>${pretty(a)}</pre>`}</div>`;
+    }).join('') + `<button onclick="pickTab(${tab})">从头再来</button>`;
+  }
+  const v = store.view(), was = id => prevView && JSON.stringify(prevView.mem[id] || prevView.ev[id]);
+  const chg = (id, o) => prevView && was(id) !== JSON.stringify(o) ? 'changed' : '';
+  const statusZh = { active: '生效', superseded: '被取代', retracted: '撤回' }, epZh = { observed: '亲见', user_stated: '用户陈述', inferred: '推断' }, chkZh = { match: '相符', changed: '已变', unreachable: '不可达', unverifiable: '不可核验' };
+  const mems = Object.values(v.mem), evs = Object.values(v.ev);
+  $('#state').innerHTML = `<h3>记忆（${mems.length}）</h3>` + (mems.length ? `<table><tr><th>id</th><th>正文</th><th>状态</th><th>作用域</th><th>认知</th><th>证据</th><th>关系</th><th>Writer</th></tr>${mems.map(m => {
+      const st = store.staleOf(m);
+      return `<tr class="${chg(m.id, m)}"><td>${m.id}</td><td>${esc(m.text)}${st ? ' <span class="stale">可能过期</span>' : ''}${m.retraction ? `<br><span class="note">撤回原因：${esc(m.retraction.reason)}</span>` : ''}</td><td class="st-${m.status}">${statusZh[m.status]}</td><td>${m.scope === 'global' ? '全局' : '项目'}</td><td>${epZh[m.epistemic]}</td><td>${m.evidence.join(', ')}</td><td>${m.supersedes.length ? '取代 ' + m.supersedes.join(', ') : ''}${m.superseded_by.length ? '被 ' + m.superseded_by.join(', ') + ' 取代' : ''}</td><td>${esc(m.writer)}</td></tr>`;
+    }).join('')}</table>` : '<p class="note">空</p>') +
+    `<h3>证据（${evs.length}）</h3>` + (evs.length ? `<table><tr><th>id</th><th>摘录</th><th>来源</th><th>核验（缓存，不进日志）</th><th>被引用</th></tr>${evs.map(e => `<tr class="${chg(e.id, e)}"><td>${e.id}</td><td>${esc(e.excerpt)}</td><td>${esc(e.source.type)}${e.source.speaker ? '·' + (e.source.speaker === 'user' ? '用户' : '智能体') : ''} ${esc(e.source.path || e.source.url || '')}</td><td>${store.checks[e.id] ? chkZh[store.checks[e.id].result] : '—'}</td><td>${e.cited_by.join(', ')}</td></tr>`).join('')}</table>` : '<p class="note">空</p>') +
+    `<h3>事件日志（只追加，${store.log.length} 条）</h3><pre>${store.log.map((e, i) => `${i + 1}. ${e.type} ${e.id || e.memory} by ${e.writer}`).join('\n') || '空'}</pre>`;
+}
+function pickTab(i) { tab = i; stepIdx = 0; if (i > 0) reset(); else render(); }
+function runStep(i) { const [kind, a, fn] = SCENARIOS[tab - 1].steps[i]; stepIdx = i + 1; kind === 'env' ? envStep(a, fn) : invoke(kind, a); }
+$('#writer').onchange = () => { world.writer = $('#writer').value; };
+reset();
+</script>
+</body>
+</html>
