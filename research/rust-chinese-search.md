@@ -2,6 +2,7 @@
 
 > 研究工单：[#3 Rust 中文检索方案选型](https://github.com/zibyn/almanac/issues/3)（地图：[#1](https://github.com/zibyn/almanac/issues/1)）
 > 调研日期：2026-10-20。版本号、下载量取自 crates.io API 当日数据。
+> 参考资料，决策以对应 ticket 的结论为准。
 
 ## 问题
 
