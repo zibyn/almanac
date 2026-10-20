@@ -32,6 +32,10 @@ _Avoid_: 数据库、仓库、vault
 一条记忆适用的范围：全局（关于这个人本身）或项目（关于某个代码库/工作区）。
 _Avoid_: namespace、context
 
+**Project Alias（项目别名）**:
+由人声明的「两个项目标识指同一个项目」，例如仓库迁移、改名之后；查询时把整组别名当作同一个项目。
+_Avoid_: 合并、重命名、rename
+
 **Writer（写入方）**:
 执行某次写入的智能体身份（如 Codex、Claude Code、Pi），是来源信息的一部分。
 _Avoid_: client、user、author
