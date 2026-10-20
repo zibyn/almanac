@@ -8,8 +8,9 @@
 | [`almanac context`](#almanac-context) | 会话开始时注入的记忆 |
 | [`almanac purge`](#almanac-purge) | 清除一条证据或记忆 |
 | [`almanac project alias`](#almanac-project-alias) | 声明项目别名 |
+| [`almanac remind`](#almanac-remind) | 写入提醒：每隔若干轮促使智能体回顾会话并写入 |
 
-- 除 `context` 外，成功退出码 0；失败退出码 1，stderr 输出一行 `<错误码>：<说明>`。
+- 除 `context`、`remind` 外，成功退出码 0；失败退出码 1，stderr 输出一行 `<错误码>：<说明>`。
 
 ## almanac mcp
 
@@ -103,3 +104,29 @@ almanac project alias <项目标识 A> <项目标识 B>
 - 参数是项目标识（如 `github.com/zibyn/almanac`、`git-root:5d0882…`），不是路径；两个必须不同且非空，否则报 `INVALID_ARGS`。
 - 两者已在同一别名组内时不写事件，输出提示后成功退出。
 - 不可撤销。
+
+## almanac remind
+
+```
+almanac remind
+```
+
+[写入提醒（Write Reminder）](../../GLOSSARY.md)：由宿主的 Stop hook（Pi 为扩展）在主智能体每轮回复结束时调用，每满 N 轮输出一次提醒，促使智能体回顾本次会话并 `record`。不调 LLM，不读对话记录，不写日志，所以不需要 Writer。
+
+### 输入与计数
+
+- stdin 为宿主 hook 的 JSON，只读 `session_id` 与 `stop_hook_active`。
+- `stop_hook_active` 为 true（本轮是 hook 促成的续跑）时，不计数、不提醒。
+- 按 `session_id` 计数，存于 `cache/remind/<session_id>`；每满 N 轮提醒一次，其余轮次无输出。计数文件丢了就从头计。
+- N 取记忆库目录下 `config.toml` 的 `remind_every`，默认 15；为 0 时永不提醒。
+
+### 输出
+
+需要提醒时，stdout 输出 `{"decision":"block","reason":"<文案>"}`（CC 与 Codex 的 Stop hook 协议相同）。文案固定：
+
+> almanac：回顾本次会话，有没有以后还会用到、有用户原话或文件支撑的论断（约定、偏好、踩过的坑）？有就 `record`，情况变了用 `supersedes`；没有就什么都不做，直接结束，不要回复这条提醒。
+
+### 永不阻塞
+
+任何失败（stdin 不是合法 JSON、缺 `session_id`、记忆库不存在、缓存写不进……）都**退出码 0**、无输出。
+
