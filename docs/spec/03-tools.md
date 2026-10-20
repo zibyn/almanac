@@ -265,9 +265,35 @@
 | `EVIDENCE_NOT_FOUND` | 引用的 `ref` 未在本次调用中定义，或证据 id 不存在、已被清除 |
 | `MEMORY_NOT_FOUND` | `supersedes` 中的记忆不存在 |
 | `NOT_ACTIVE` | `supersedes` 中的记忆既不是生效也不是无据。被取代时 hint 给出它的后继 |
+| `SECRET_DETECTED` | 写入的文本命中下文「密钥检查」的规则 |
 | `DUPLICATE_TEXT` | 见下文「重复」 |
 
 `FILE_NOT_FOUND` 与 `EXCERPT_NOT_IN_FILE` 是唯一读取来源的硬检查：本次调用新给出的每条 `file` 证据（按 id 引用的已有证据除外），都按第 6 章「文件」的方式与当前文件比对，在结构性检查之后、重复判断之前进行，即使随后会去重也照样比对。写入成功后，比对结果作为一次 `match`（连同 mtime 与大小）写进本机核验缓存。`web` 证据写入时不联网核对。
+
+### 密钥检查
+
+写入前，用下表的固定规则扫描本次调用新写入的全部文本：证据的 `excerpt`，`source` 中除 `type`、`fetched_at` 外的字符串字段（如 `command`、`cwd`、`url`、`path`、`session`、`transcript_path`），记忆的 `text`，`retract` 的 `reason`。按 id 引用的已有证据不再扫描。任何一处命中即报 `SECRET_DETECTED`，整体拒绝；它与其他结构性检查同时进行，先于文件比对。
+
+| 规则 | 模式（正则） |
+|---|---|
+| `private_key` | `-----BEGIN [A-Z ]*PRIVATE KEY-----` |
+| `aws_access_key` | `\b(AKIA\|ASIA)[0-9A-Z]{16}\b` |
+| `github_token` | `\bgh[pousr]_[A-Za-z0-9]{36,}` 或 `\bgithub_pat_[A-Za-z0-9_]{22,}` |
+| `gitlab_token` | `\bglpat-[A-Za-z0-9_-]{20,}` |
+| `slack_token` | `\bxox[abprs]-[A-Za-z0-9-]{10,}` |
+| `anthropic_key` | `\bsk-ant-[A-Za-z0-9_-]{20,}` |
+| `openai_key` | `\bsk-(proj-)?[A-Za-z0-9_-]{20,}` |
+| `stripe_key` | `\b[sr]k_live_[A-Za-z0-9]{20,}` |
+| `google_api_key` | `\bAIza[0-9A-Za-z_-]{35}` |
+| `jwt` | `\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}` |
+| `url_credentials` | `[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@` |
+
+- 规则内置、固定，以精确为先：只收有明显前缀或结构的格式，不做熵值启发、不按 `password=` 等关键词匹配，不可由用户配置。
+- 规则只作用于写入，重放日志时不检查，所以规则在以后版本中增删不影响已有数据，也不需要版本号或指纹。
+- `message` 给出命中的规则名、字段路径（如 `evidence[0].excerpt`、`evidence[1].source.command`、`reason`）和字符偏移，**不回显命中的值**：错误输出会进入智能体上下文和宿主的会话记录。多处命中时只报第一处。
+- 没有强制写入的开关：智能体也能传参，开关会让拦截失效。误报时由智能体按 hint 改写；规则误报在后续版本中修正。
+- hint：对话、命令证据与记忆正文，把密钥换成 `<redacted>` 后重试；`file` 证据换一段不含密钥的更窄摘录（打码后的摘录对不上文件）；密钥本身就是要记的内容时，不要记录。
+- 已在库里的密钥不扫描，`review` 也不报；抹除只能由人 `almanac purge`（第 4 章）。
 
 ### 重复
 
@@ -310,7 +336,7 @@
 
 ### 硬检查
 
-`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（记忆不是生效状态）；`NO_EVIDENCE`；`EVIDENCE_NOT_FOUND`；内联证据的 `MISSING_FIELD`、`EXCERPT_TOO_LONG`、`FILE_OUTSIDE_PROJECT`、`FILE_NOT_FOUND`、`EXCERPT_NOT_IN_FILE`。
+`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（记忆不是生效状态）；`NO_EVIDENCE`；`EVIDENCE_NOT_FOUND`；内联证据的 `MISSING_FIELD`、`EXCERPT_TOO_LONG`、`FILE_OUTSIDE_PROJECT`、`SECRET_DETECTED`、`FILE_NOT_FOUND`、`EXCERPT_NOT_IN_FILE`。
 
 ### 响应
 
@@ -338,7 +364,7 @@
 
 ### 硬检查
 
-`MEMORY_NOT_FOUND`；`MISSING_FIELD`（`reason` 为空）；`NOT_ACTIVE`（记忆既不是生效也不是无据）。
+`MEMORY_NOT_FOUND`；`MISSING_FIELD`（`reason` 为空）；`SECRET_DETECTED`（`reason` 命中密钥规则，见 `record`「密钥检查」）；`NOT_ACTIVE`（记忆既不是生效也不是无据）。
 
 ### 响应
 
