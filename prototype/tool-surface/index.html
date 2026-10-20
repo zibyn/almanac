@@ -56,7 +56,7 @@
   <div>
     <section>
       <h2>工具清单（草案）</h2>
-      <p class="note">共同约定：每个工具都接受可选的 <code>project</code>（路径）；不传时依次取 roots/list → CLAUDE_PROJECT_DIR → cwd，再向上找 git 根。Writer 由 almanac 自动填写，不作为参数。CLI 与 MCP 同名：<code>almanac search --json '{…}'</code>。只在 CLI 提供：<code>purge</code>（清除）、<code>context</code>（会话开始注入，规格待定）。</p>
+      <p class="note">共同约定：每个工具都接受可选的 <code>project</code>（路径，只用来定位）；不传时依次取 roots/list → CLAUDE_PROJECT_DIR → cwd。almanac 再由路径推出<b>项目标识</b>：在 git 仓库内时用 git（归一化的 origin remote，没有 remote 时用根提交），不在 git 内才退回路径。这样多台设备上同一个仓库是同一个项目。Writer 由 almanac 自动填写，不作为参数。CLI 与 MCP 同名：<code>almanac search --json '{…}'</code>。只在 CLI 提供：<code>purge</code>（清除）、<code>context</code>（会话开始注入，规格待定）。</p>
       <div id="schemas"></div>
     </section>
     <section>
@@ -150,7 +150,13 @@ const Almanac = (() => {
       }
     }
 
-    projectKey(args) { return args.project || this.env.project; }
+    // 项目标识：有 git 就用 git（跨设备一致），否则退回路径
+    projectKey(args) {
+      const path = args.project || this.env.project, repo = this.env.repos[path];
+      if (repo?.remote) return repo.remote.replace(/^[a-z+]+:\/\//, '').replace(/^[^@\/]+@/, '').replace(':', '/').replace(/\.git$/, '');
+      if (repo?.root_commit) return `git-root:${repo.root_commit}`;
+      return `path:${path}`;
+    }
     inScope(m, args, scope) {
       const p = this.projectKey(args);
       if (scope === 'global') return m.scope === 'global';
@@ -361,6 +367,8 @@ const SCENARIOS = [
     steps: [['record', PREF], ['search', { query: '缩进' }], ['get', { ids: ['mem_1'] }]] },
   { title: '文件变了 → 可能过期 → 取代', desc: '记忆引用了 README 里的构建命令。之后 README 被改，search 时惰性核验发现「已变」，结果带上 stale。智能体重读文件，写一条新记忆取代旧的。默认检索不再返回旧记忆，但 get 新记忆能沿 supersedes 找到它。',
     steps: [['record', BUILD], ['env', 'README 改为 cargo build --all-features', w => { w.files['README.md'] = '# almanac\n\n构建：\n\n    cargo build --all-features\n'; }], ['search', { query: '构建命令' }], ['record', { evidence: [{ ref: 'e1', excerpt: 'cargo build --all-features', source: { type: 'file', path: 'README.md' } }], memories: [{ text: '本项目的构建命令是 cargo build --all-features', scope: 'project', epistemic: 'observed', evidence: ['e1'], supersedes: ['mem_1'] }] }], ['search', { query: '构建命令' }], ['get', { ids: ['mem_2'] }]] },
+  { title: '换设备', desc: '在设备 A（Linux，SSH remote）上记下构建命令，然后切到设备 B（macOS，HTTPS remote，路径不同）。两边推出的项目标识都是 github.com/zibyn/almanac，所以 B 上能检索到 A 写的项目记忆；B 再记同一处摘录时，证据按指纹幂等。',
+    steps: [['record', BUILD], ['env', '切到设备 B：/Users/u/code/almanac', w => { w.project = '/Users/u/code/almanac'; }], ['search', { query: '构建命令', scope: 'project' }], ['record', { evidence: [{ excerpt: 'cargo build --features cjk', source: { type: 'file', path: 'README.md' } }] }]] },
   { title: '一拆二与「并发取代」', desc: '一条笼统的记忆要拆成两条：两条新记忆放在同一次 record 里，都 supersedes 同一条旧记忆。随后另一个智能体（换成 Codex）还拿着旧 id，想再取代一次，会被 NOT_ACTIVE 拒绝。问题：#5 说「并发取代合法」，但在单机串行写入下它根本不会发生，这样对吗？',
     steps: [['record', { evidence: [{ ref: 'e1', excerpt: '"packageManager": "pnpm@9"', source: { type: 'file', path: 'package.json' } }, { ref: 'e2', excerpt: '"test": "vitest"', source: { type: 'file', path: 'package.json' } }], memories: [{ text: '前端用 pnpm 和 vitest', scope: 'project', epistemic: 'observed', evidence: ['e1', 'e2'] }] }],
       ['record', { memories: [{ text: '前端包管理器是 pnpm', scope: 'project', epistemic: 'observed', evidence: ['ev_1'], supersedes: ['mem_1'] }, { text: '前端测试框架是 vitest', scope: 'project', epistemic: 'observed', evidence: ['ev_2'], supersedes: ['mem_1'] }] }],
@@ -385,7 +393,8 @@ const SCENARIOS = [
 
 // ===================== 页面外壳 =====================
 const freshWorld = () => ({
-  writer: 'Claude Code', project: '/home/u/almanac', session: 'sess-42', commit: 'a1b2c3d', clock: 0,
+  writer: 'Claude Code', project: '/home/u/almanac',
+  repos: { '/home/u/almanac': { remote: 'git@github.com:zibyn/almanac.git' }, '/Users/u/code/almanac': { remote: 'https://github.com/zibyn/almanac.git' } }, session: 'sess-42', commit: 'a1b2c3d', clock: 0,
   files: { 'README.md': '# almanac\n\n构建：\n\n    cargo build --features cjk\n', 'package.json': '{ "packageManager": "pnpm@9", "scripts": { "test": "vitest" } }' },
   web: { 'https://docs.example.com/tantivy': '<html><body><p>MSRV is 1.80</p></body></html>' },
   now() { return ++this.clock; },
@@ -409,7 +418,7 @@ function render() {
   $('#schemas').innerHTML = SCHEMAS.map(s => `<details><summary>${s.name} <small>${s.ro ? '只读' : '写入'} · ${esc(s.gist)}</small></summary>
     <h3>描述（给模型看的）</h3><p>${esc(s.desc)}</p><h3>参数</h3><pre>${esc(Object.entries(s.schema).map(([k, v]) => `${k}: ${v}`).join('\n'))}</pre>
     ${s.extra ? `<pre>${esc(s.extra)}</pre>` : ''}<h3>返回</h3><pre>${esc(s.returns)}</pre></details>`).join('');
-  $('#world').innerHTML = `<h3>项目 ${esc(world.project)}</h3>` + Object.entries(world.files).map(([p, b]) => `<b>${esc(p)}</b><pre>${esc(b)}</pre>`).join('') +
+  $('#world').innerHTML = `<h3>项目路径 ${esc(world.project)} → 标识 ${esc(store.projectKey({}))}</h3>` + Object.entries(world.files).map(([p, b]) => `<b>${esc(p)}</b><pre>${esc(b)}</pre>`).join('') +
     Object.entries(world.web).map(([u, b]) => `<b>${esc(u)}</b><pre>${esc(b)}</pre>`).join('');
   $('#tabs').innerHTML = ['自由调用', ...SCENARIOS.map(s => s.title)].map((t, i) => `<button class="${i === tab ? 'on' : ''}" onclick="pickTab(${i})">${esc(t)}</button>`).join('');
   if (tab === 0) {
@@ -431,7 +440,7 @@ function render() {
   const mems = Object.values(v.mem), evs = Object.values(v.ev);
   $('#state').innerHTML = `<h3>记忆（${mems.length}）</h3>` + (mems.length ? `<table><tr><th>id</th><th>正文</th><th>状态</th><th>作用域</th><th>认知</th><th>证据</th><th>关系</th><th>Writer</th></tr>${mems.map(m => {
       const st = store.staleOf(m);
-      return `<tr class="${chg(m.id, m)}"><td>${m.id}</td><td>${esc(m.text)}${st ? ' <span class="stale">可能过期</span>' : ''}${m.retraction ? `<br><span class="note">撤回原因：${esc(m.retraction.reason)}</span>` : ''}</td><td class="st-${m.status}">${statusZh[m.status]}</td><td>${m.scope === 'global' ? '全局' : '项目'}</td><td>${epZh[m.epistemic]}</td><td>${m.evidence.join(', ')}</td><td>${m.supersedes.length ? '取代 ' + m.supersedes.join(', ') : ''}${m.superseded_by.length ? '被 ' + m.superseded_by.join(', ') + ' 取代' : ''}</td><td>${esc(m.writer)}</td></tr>`;
+      return `<tr class="${chg(m.id, m)}"><td>${m.id}</td><td>${esc(m.text)}${st ? ' <span class="stale">可能过期</span>' : ''}${m.retraction ? `<br><span class="note">撤回原因：${esc(m.retraction.reason)}</span>` : ''}</td><td class="st-${m.status}">${statusZh[m.status]}</td><td>${m.scope === 'global' ? '全局' : '项目 ' + esc(m.project)}</td><td>${epZh[m.epistemic]}</td><td>${m.evidence.join(', ')}</td><td>${m.supersedes.length ? '取代 ' + m.supersedes.join(', ') : ''}${m.superseded_by.length ? '被 ' + m.superseded_by.join(', ') + ' 取代' : ''}</td><td>${esc(m.writer)}</td></tr>`;
     }).join('')}</table>` : '<p class="note">空</p>') +
     `<h3>证据（${evs.length}）</h3>` + (evs.length ? `<table><tr><th>id</th><th>摘录</th><th>来源</th><th>核验（缓存，不进日志）</th><th>被引用</th></tr>${evs.map(e => `<tr class="${chg(e.id, e)}"><td>${e.id}</td><td>${esc(e.excerpt)}</td><td>${esc(e.source.type)}${e.source.speaker ? '·' + (e.source.speaker === 'user' ? '用户' : '智能体') : ''} ${esc(e.source.path || e.source.url || '')}</td><td>${store.checks[e.id] ? chkZh[store.checks[e.id].result] : '—'}</td><td>${e.cited_by.join(', ')}</td></tr>`).join('')}</table>` : '<p class="note">空</p>') +
     `<h3>事件日志（只追加，${store.log.length} 条）</h3><pre>${store.log.map((e, i) => `${i + 1}. ${e.type} ${e.id || e.memory} by ${e.writer}`).join('\n') || '空'}</pre>`;
