@@ -116,6 +116,7 @@
 | `writer` | 记录它的 Writer 的 `name` |
 | `last_at` | 最近一次记录或附证的时间 |
 | `evidence_count` | 当前引用的证据条数 |
+| `source_types` | 当前证据的来源类型去重（第 1 章「派生关系」），如 `["web"]`；不用 `get` 也能看出记忆是否来自网页 |
 | `stale` | `Stale` |
 | `score` | 排序分，只用于比较同一次结果内的先后 |
 | `matched_terms` | 查询中命中的词（分词后），无 `query` 时为空数组 |
