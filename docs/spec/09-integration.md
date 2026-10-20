@@ -4,7 +4,7 @@ almanac 以宿主原生插件接入 Claude Code（CC）、Codex、Pi。默认的
 
 ## 二进制
 
-`almanac` 必须在 `PATH` 上：从 GitHub Release 下载，或 `cargo install`。不做自动更新，也不做插件与二进制的版本协商。版本不匹配时，由 `VERSION_MISMATCH`（第 8 章）与 `context` 的「almanac 不可用：…」兜底。
+`almanac` 必须在 `PATH` 上：从 GitHub Release 下载，或 `cargo install`。不做自动更新，也不做插件与二进制的版本协商。版本不匹配时，由 `STORE_NEWER`（第 2 章）与 `context` 的「almanac 不可用：…」兜底。
 
 ## 插件
 
@@ -24,7 +24,7 @@ package.json                         只为 Pi：仅有 "pi" 键
 
 - 不用符号链接：Codex 安装时会丢弃符号链接。
 - 「CC 与 Codex 共用一个插件目录」尚未端到端实测，实现时验证。不行时的回退方案：另建 `.codex-plugin` 目录并复制一份 SKILL.md，加 CI 检查两份内容一致。
-- 插件里只有 SKILL.md 与会话开始注入，不含 MCP 配置，也不含 server 地址或 token。本地模式与远程模式下，宿主侧配置完全相同（第 4 章 `almanac remote`）。
+- 插件里只有 SKILL.md 与会话开始注入，不含 MCP 配置。
 
 ### 安装
 
@@ -102,10 +102,10 @@ SKILL.md 必须讲清：
 1. **怎么调用**：`almanac <tool> --json '<参数>'`，长参数用 `--json -` 加 heredoc；工具清单与要点（第 3 章）。
 2. **何时检索**：动手前、用户提到过去的约定或偏好时，先 `search`；没命中就看 `matched_terms` 换词再搜；需要证据或历史时用 `get` 沿 id 追溯。
 3. **何时写入**：倾向不写，只记以后还会用到、有证据支撑的论断；一条记忆只写一个论断。
-4. **怎么写对**：证据是一小段原文摘录；用户说「记住 X」时这句话本身就是证据；区分用户说的（`speaker: "user"`）与智能体说的（`"agent"`）；认知状态没有默认值，按亲见 / 用户陈述 / 推断如实选；项目外的文件按 `command` 记录。
+4. **怎么写对**：证据是一小段原文摘录；用户说「记住 X」时这句话本身就是证据；对话证据只收用户说的话，用户确认智能体的提议时，摘录先写一行 `> 智能体：…` 再写用户原话；认知状态可省略（证据全是对话时默认用户陈述，否则默认推断），自己观察到的显式写 `observed`；项目外的文件按 `command` 记录。
 5. **怎么更新与遗忘**：情况变了用 `record` 加 `supersedes`；本就错了用 `retract` 并写原因；`DUPLICATE_TEXT` 时改用 `corroborate`；收到 `NOT_ACTIVE` 时沿取代链找最新的后继。
 6. **可能过期**：看到 `stale` 时重读来源，再附证、取代或撤回；`verify` 会对网页发请求。
-7. **整理**：用户要求整理记忆时调用 `review`，逐项处置；两条相似记忆各自成立时用 `distinguish`。
+7. **整理**：用户要求整理记忆时调用 `review`，逐项处置；`record` 返回 `similar` 时先看一眼，是更新就改用 `supersedes`。
 8. **不做的事**：不能物理删除；需要抹除敏感内容时，建议用户在终端运行 `almanac purge`。
 9. **`NO_WRITER`**：只在 hint 说明宿主嵌套时，在命令前加 `ALMANAC_WRITER=<自己的宿主名>` 重试；平时不设置它。
 
@@ -139,7 +139,7 @@ env = { ALMANAC_WRITER = "codex" }
 
 ## Writer 推断
 
-每次写入都必须有 [写入方（Writer）](../../GLOSSARY.md)：`{ name, model?, session? }`，由本地前端推断，不是工具参数。推断不出就拒绝写入，报 `NO_WRITER`，不记 unknown。读操作不受影响。
+每次写入都必须有 [写入方（Writer）](../../GLOSSARY.md)：`{ name, model?, session? }`，由 almanac 推断，不是工具参数。推断不出就拒绝写入，报 `NO_WRITER`，不记 unknown。读操作不受影响。
 
 ### CLI
 

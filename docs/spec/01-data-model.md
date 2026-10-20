@@ -5,7 +5,7 @@
 ## 标识
 
 - 证据 id：`ev_<ULID>`；记忆 id：`mem_<ULID>`；事务 id：`tx_<ULID>`。
-- id 由发起写入的一方生成（本地模式是本机二进制，server 模式是客户端的本地前端，见第 8 章），写入后永不改变，清除重写日志后也不变。
+- id 由发起写入的本机二进制生成，写入后永不改变，清除重写日志后也不变。
 - 时间一律为 UTC 的 RFC 3339 字符串，精确到毫秒。
 
 ## 证据
@@ -18,7 +18,7 @@
 | `excerpt` | string | 支撑记忆的一小段原文，UTF-8 不超过 4096 字节 |
 | `source` | Source | 见下表，按 `type` 区分 |
 
-来源的其余部分（写入方、设备、时间、git commit）记在所属事务上（第 2 章），不在证据里重复。
+来源的其余部分（写入方、时间、git commit）记在所属事务上（第 2 章），不在证据里重复。
 
 ### 来源类型
 
@@ -26,12 +26,13 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 
 | `type` | 字段 | 可否核验 |
 |---|---|---|
-| `conversation` | `speaker`：`user` \| `agent`（必填）；`host`：宿主名，自动填为本次写入的 Writer 名；`session?`：会话标识，自动填为 Writer 的会话；`turn?`：轮次；`transcript_path?`：只作参考，不回查 | 不可核验 |
+| `conversation` | `host`：宿主名，自动填为本次写入的 Writer 名；`session?`：会话标识，自动填为 Writer 的会话；`turn?`：轮次；`transcript_path?`：只作参考，不回查 | 不可核验 |
 | `file` | `project`：项目标识；`path`：相对项目根的路径，不得以 `/` 开头或含 `..`；`line?`：行号提示 | 可核验 |
 | `web` | `url`：`http` 或 `https`；`fetched_at`：抓取时间，未给出时填写入时间 | 可核验 |
 | `command` | `command`：命令行；`cwd?`；`exit_code`：整数（必填） | 不可核验 |
 
-- 人的直接陈述（包括人通过 CLI 写入）记为 `conversation`，`speaker` 为 `user`。
+- `conversation` 证据只收**用户**说的话；智能体自己说的话不能作为证据。人的直接陈述（包括人通过 CLI 写入）也记为 `conversation`。
+- 用户的话是对智能体提议的确认（如「对，就这样」）时，摘录可以先引用紧挨着的上一句智能体发言作为上下文，写成以 `> 智能体：` 开头的一行，再另起一行写用户原话。证据仍算用户的陈述。
 - `file` 只接受项目根之内的文件；项目外的文件按 `command` 记录（如 `cat` 的输出）。
 - 如何核验见第 6 章。
 
@@ -41,15 +42,15 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 
 | `type` | 规范化定位 |
 |---|---|
-| `conversation` | `speaker`、`session` |
+| `conversation` | `session` |
 | `file` | `project`、`path` |
 | `web` | `url` |
 | `command` | `command`、`cwd` |
 
 - 归一化：Unicode NFC，连续空白折叠为一个空格，去掉首尾空白。核验时的子串匹配用同一归一化。
-- 不进指纹：行号提示、`fetched_at`、git commit、写入时间、Writer、设备。
+- 不进指纹：行号提示、`fetched_at`、git commit、写入时间、Writer。
 - 同一摘录出自不同文件，是两条证据。
-- 指纹是派生值，不写进日志，只存在 `index/` 中。具体哈希算法不在规格里规定。
+- 指纹是派生值，不写进日志，重放时在内存中算出（第 2 章）。具体哈希算法不在规格里规定。
 
 ## 记忆
 
@@ -62,15 +63,17 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 | `scope` | `global` \| `project` | 必填，由写入方显式选择，不按 cwd 默认 |
 | `project` | string | `scope` 为 `project` 时必有：项目标识 |
 | `root_commit` | string | `scope` 为 `project` 且项目在 git 内时必有：项目的根提交 |
-| `epistemic` | `observed` \| `user_stated` \| `inferred` | [认知状态（Epistemic Status）](../../GLOSSARY.md)：亲见 / 用户陈述 / 推断。必填，无默认值 |
+| `epistemic` | `observed` \| `user_stated` \| `inferred` | [认知状态（Epistemic Status）](../../GLOSSARY.md)：亲见 / 用户陈述 / 推断。写入时可省略，见下文 |
 | `evidence` | string[] | 记录时引用的证据 id，至少一条，没有例外 |
 | `supersedes` | string[] | 被它取代的记忆 id，可为空 |
+
+认知状态省略时由证据保守推出：记录时引用的证据**全部**为 `conversation`，取 `user_stated`；否则取 `inferred`。推出的值照常写进日志，读端不再推导。写入方确是自己观察到的（如工具输出），应显式写 `observed`。
 
 记忆当前引用的全部证据＝记录时的 `evidence` 加上此后所有[附证（Corroboration）](../../GLOSSARY.md)追加的证据。
 
 ## 事件
 
-日志中的每个事件属于一个事务（第 2 章），由事务提供 Writer、设备、时间、git commit。v0.1 共六种事件：
+日志中的每个事件属于一个事务（第 2 章），由事务提供 Writer、时间、git commit。v0.1 共五种事件：
 
 | `type` | 字段 | 含义 |
 |---|---|---|
@@ -78,7 +81,6 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 | `memory_recorded` | 记忆的全部字段（见上表） | 写入一条记忆；`supersedes` 非空即同时取代其中的旧记忆 |
 | `corroborated` | `memory`、`evidence`（id 数组，≥1） | 为一条记忆追加支撑证据，正文不变 |
 | `retracted` | `memory`、`reason`（非空） | 撤回一条记忆 |
-| `distinguished` | `memories`（恰好两个 id） | 声明两条相似的记忆各自成立，即[并存（Distinction）](../../GLOSSARY.md)；不可撤销 |
 | `project_aliased` | `projects`（恰好两个项目标识） | 声明两个项目标识指同一个项目，即[项目别名（Project Alias）](../../GLOSSARY.md) |
 
 - 取代没有独立事件：它就是新记忆的 `supersedes` 字段。一拆多＝同一事务里多条新记忆取代同一条旧记忆；多合一＝一条新记忆的 `supersedes` 列出多条旧记忆。
@@ -99,14 +101,14 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 
 转换规则：
 
-- 已清除是终态：不能被取代、撤回、附证，也不能参与并存。它先前的撤回、被取代关系仍在日志里，只是状态取已清除。
+- 已清除是终态：不能被取代、撤回、附证。它先前的撤回、被取代关系仍在日志里，只是状态取已清除。
 - 只有**生效或无据**的记忆能被取代、撤回。被取代、撤回是终态，二者互斥。要「恢复」一条撤回的记忆，就写一条新记忆，引用同样的证据。
-- 只有**生效**的记忆能被附证，能参与并存声明。
+- 只有**生效**的记忆能被附证。
 - 无据由清除自动推导，不写额外事件。
 - 新记忆的作用域可以与被取代的旧记忆不同。
 - 日志格式允许一条记忆有多个后继；v0.1 的写入路径不会产生（写入串行化，且只有生效或无据的记忆能被取代），但读端与[复核](07-review.md)必须能处理。
 
-[可能过期（Stale）](../../GLOSSARY.md)不是状态：它从本设备的核验缓存推导，不改变可见性，见第 6 章。
+[可能过期（Stale）](../../GLOSSARY.md)不是状态：它从本机的核验缓存推导，不改变可见性，见第 6 章。
 
 ### 派生关系
 
@@ -135,7 +137,7 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 
 根提交：有多个根提交时，取 hash 字典序最小的那个。项目作用域的记忆总是同时记下 `root_commit`（项目在 git 内时）。
 
-这样多台设备上的同一个仓库是同一个项目，`file` 证据的相对路径也一致。
+这样同一仓库的不同克隆是同一个项目，`file` 证据的相对路径也一致。
 
 ### 项目别名
 
@@ -151,7 +153,7 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
   ```json
   "purged": { "at": "2026-10-20T08:00:00.000Z", "reason": "含 API token", "by": { "name": "human" } }
   ```
-  墓碑不含原文，也不含任何由原文派生的值（不留哈希，以免短内容被穷举确认）。证据的指纹随之从 `index/` 消失。
+  墓碑不含原文，也不含任何由原文派生的值（不留哈希，以免短内容被穷举确认）。被清除的证据不再有指纹。
 - `by` 固定为 `{"name": "human"}`：清除只能由人在终端里执行（第 4 章）。
 - 清除**证据**时，`source` 缩为只剩 `{ "type": … }`，其余定位字段（命令行、URL、路径、会话等）一并抹去：定位本身也可能含敏感内容。
 - 清除**记忆**时，只替换 `text`；`scope`、`project`、`root_commit`、`epistemic`、`evidence`、`supersedes` 不是由正文派生的，原样保留，取代链与附证关系不断。针对它的 `retracted` 事件的 `reason` 也换成同一墓碑（撤回原因常复述正文），事件本身保留。

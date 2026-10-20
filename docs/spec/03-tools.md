@@ -1,6 +1,6 @@
 # 3 智能体工具
 
-本章是工具 schema 的唯一来源。almanac 向智能体暴露 8 个工具，MCP 与 CLI 同名、同 schema、同响应：
+本章是工具 schema 的唯一来源。almanac 向智能体暴露 7 个工具，MCP 与 CLI 同名、同 schema、同响应：
 
 | 工具 | 读/写 | 作用 |
 |---|---|---|
@@ -10,7 +10,6 @@
 | [`record`](#record) | 写 | 写证据和/或记忆（含取代），原子 |
 | [`corroborate`](#corroborate) | 写 | 为记忆附证 |
 | [`retract`](#retract) | 写 | 撤回记忆 |
-| [`distinguish`](#distinguish) | 写 | 声明两条相似记忆并存 |
 | [`verify`](#verify) | 写核验缓存 | 显式核验来源，网页证据会联网 |
 
 只在 CLI 提供的命令（`context`、`purge` 等）见第 4 章。
@@ -37,7 +36,7 @@
 ```
 
 - `hint` 可选，告诉智能体下一步怎么改。全部错误码见第 10 章。
-- 任何工具都可能返回：`INVALID_ARGS`、`STORE_NEWER`（第 2 章）、`REMOTE_UNREACHABLE`、`UNAUTHORIZED`、`VERSION_MISMATCH`（第 8 章）。写工具还可能返回 `NO_WRITER`（第 9 章）、`STORE_BUSY`（第 2 章）与 `ALREADY_APPLIED`（第 8 章）。
+- 任何工具都可能返回：`INVALID_ARGS`、`STORE_NEWER`（第 2 章）。写工具还可能返回 `NO_WRITER`（第 9 章）与 `STORE_BUSY`（第 2 章）。
 - 写工具全部检查通过才写日志：一次调用＝一个事务，要么整体生效，要么什么都不写。
 
 ### 作用域过滤
@@ -56,10 +55,10 @@
 **Writer 与事务信息**（`Recorded`）：
 
 ```
-{ tx, at, writer: { name, model?, session? }, device?, git_commit? }
+{ tx, at, writer: { name, model?, session? }, git_commit? }
 ```
 
-**核验结果**（`Check`）：本设备核验缓存里的最近一次结果，没有则为 `null`。
+**核验结果**（`Check`）：本机核验缓存里的最近一次结果，没有则为 `null`。
 
 ```
 { result: "match" | "changed" | "unreachable" | "unverifiable", at }
@@ -73,7 +72,7 @@
 
 ### 惰性核验
 
-`search` 与 `get` 在返回前，对结果中记忆当前引用的 `file` 证据做惰性核验，结果写进本设备的核验缓存，并据此给出 `stale`。它们**从不联网**：`web` 证据只读缓存里已有的结果。惰性核验的方式见第 6 章。
+`search` 与 `get` 在返回前，对结果中记忆当前引用的 `file` 证据做惰性核验，结果写进本机的核验缓存，并据此给出 `stale`。它们**从不联网**：`web` 证据只读缓存里已有的结果。惰性核验的方式见第 6 章。
 
 ## search
 
@@ -159,7 +158,6 @@
 | `supersedes`、`superseded_by` | 记忆 id 数组 |
 | `corroborations` | `[{ evidence: [id], recorded: Recorded }]`，按时间顺序 |
 | `retraction` | `{ reason, recorded: Recorded }` 或 `null` |
-| `distinguished_from` | 与它声明了[并存（Distinction）](../../GLOSSARY.md)的记忆 id |
 | `stale` | `Stale` |
 
 `Evidence`：`id`、`kind: "evidence"`、`excerpt`、`source`（第 1 章）、`recorded`（`Recorded`）、`check`（`Check`）、`cited_by`。
@@ -170,11 +168,11 @@
 
 ## review
 
-按需检查记忆库，列出待处置的问题。只读、不联网：可能过期只读核验缓存，不重新核验。只报告，从不处置，也不保存待办状态。四类问题的判定与相似度定义见第 7 章。
+按需检查记忆库，列出待处置的问题。只读、不联网：可能过期只读核验缓存，不重新核验。只报告，从不处置，也不保存待办状态。三类问题的判定见第 7 章。
 
 **给模型的描述**：
 
-> 列出记忆库中待处置的问题：多个生效后继、相似对、可能过期、无据。只报告，不处置；每项附建议操作，由你或用户决定。用户要求整理记忆时调用。
+> 列出记忆库中待处置的问题：多个生效后继、可能过期、无据。只报告，不处置；每项附建议操作，由你或用户决定。用户要求整理记忆时调用。
 
 ### 参数
 
@@ -194,7 +192,6 @@
 | `type` | 其余字段 | `actions`（建议操作） |
 |---|---|---|
 | `multiple_successors` | `memory`：被取代的记忆；`successors`：它的生效后继 | `supersede`（一条新记忆同时取代这些后继）、`retract`（撤回其一） |
-| `similar_pair` | `memories`：两条记忆 id；`similarity` | `supersede`、`retract`、`distinguish` |
 | `stale` | `memory`；`stale`：`Stale` | `corroborate`、`supersede`、`retract` |
 | `unsupported` | `memory` | `supersede`（用新证据重记）、`retract` |
 
@@ -206,7 +203,7 @@
 
 **给模型的描述**：
 
-> 写入证据和/或记忆，原子：任何一条不过检查则整体拒绝。证据用 `ref` 在本次调用内被记忆引用，也可引用已有证据 id。更新记忆＝写一条新记忆并在 `supersedes` 里列出旧记忆；一拆多时把多条新记忆放在同一次调用里。倾向不写：只记以后还会用到、且有证据支撑的论断。用户说「记住 X」时，这句话本身就是证据。区分用户说的话（`speaker: "user"`）和你自己说的话（`speaker: "agent"`）。认知状态没有默认值：自己观察到的（如工具输出）是 `observed`，用户说的是 `user_stated`，推出来的是 `inferred`。
+> 写入证据和/或记忆，原子：任何一条不过检查则整体拒绝。证据用 `ref` 在本次调用内被记忆引用，也可引用已有证据 id。更新记忆＝写一条新记忆并在 `supersedes` 里列出旧记忆；一拆多时把多条新记忆放在同一次调用里。倾向不写：只记以后还会用到、且有证据支撑的论断。用户说「记住 X」时，这句话本身就是证据；对话证据只收用户说的话，你自己说的话不能作为证据，用户确认你的提议时，摘录先写一行 `> 智能体：<你的提议>`，再写用户原话。认知状态可省略：证据全是对话时默认 `user_stated`，否则默认 `inferred`；自己观察到的（如工具输出）请显式写 `observed`。
 
 ### 参数
 
@@ -229,13 +226,13 @@
 `SourceIn` 按 `type` 区分，字段即第 1 章「来源类型」去掉自动填写的部分：
 
 ```
-  { type: "conversation", speaker: "user" | "agent", session?, turn?, transcript_path? }
+  { type: "conversation", session?, turn?, transcript_path? }   // 只收用户说的话
 | { type: "file", path, line? }            // path：相对项目根，不以 / 开头，不含 ..
 | { type: "web", url, fetched_at? }        // url：http 或 https
 | { type: "command", command, cwd?, exit_code }
 ```
 
-- `conversation`：`host` 自动填为 Writer 名；未给 `session` 时填 Writer 的会话。
+- `conversation`：`host` 自动填为 Writer 名；未给 `session` 时填 Writer 的会话。摘录的写法见第 1 章「来源类型」。
 - `file`：`project` 自动填为由 `project` 参数推出的项目标识。
 
 `MemoryIn`：
@@ -244,7 +241,7 @@
 |---|---|---|
 | `text` | string | 一条论断，不超过 500 个 Unicode 字符 |
 | `scope` | `global` \| `project` | 必填 |
-| `epistemic` | `observed` \| `user_stated` \| `inferred` | 必填，无默认值 |
+| `epistemic` | `observed` \| `user_stated` \| `inferred` | 可省略；省略时由证据推出（第 1 章） |
 | `evidence` | string[] | ≥1；每项是本次调用的 `ref` 或已有证据 id |
 | `supersedes` | string[]? | 被取代的记忆 id |
 
@@ -256,7 +253,7 @@
 
 | 错误码 | 条件 |
 |---|---|
-| `MISSING_FIELD` | `evidence` 与 `memories` 都没给；或缺必填字段（`excerpt`、`source`、`speaker`、`url`、`command`、`exit_code`、`text`、`epistemic` 等） |
+| `MISSING_FIELD` | `evidence` 与 `memories` 都没给；或缺必填字段（`excerpt`、`source`、`url`、`command`、`exit_code`、`text` 等） |
 | `EXCERPT_TOO_LONG` | 摘录超过 4096 字节。hint：只截取能支撑记忆的那一小段 |
 | `FILE_OUTSIDE_PROJECT` | `file` 的 `path` 以 `/` 开头或含 `..`。hint：项目外的文件按 `command` 记录（如 `cat` 的输出） |
 | `FILE_NOT_FOUND` | `file` 证据的文件在项目根下不存在或不可读。hint：检查 `path` 是否相对项目根 |
@@ -269,7 +266,7 @@
 | `NOT_ACTIVE` | `supersedes` 中的记忆既不是生效也不是无据。被取代时 hint 给出它的后继 |
 | `DUPLICATE_TEXT` | 见下文「重复」 |
 
-`FILE_NOT_FOUND` 与 `EXCERPT_NOT_IN_FILE` 是唯一读取来源的硬检查：本次调用新给出的每条 `file` 证据（按 id 引用的已有证据除外），都按第 6 章「文件」的方式与当前文件比对，在结构性检查之后、重复判断之前进行，即使随后会去重也照样比对。写入成功后，比对结果作为一次 `match`（连同 mtime 与大小）写进本设备核验缓存。`web` 证据写入时不联网核对。
+`FILE_NOT_FOUND` 与 `EXCERPT_NOT_IN_FILE` 是唯一读取来源的硬检查：本次调用新给出的每条 `file` 证据（按 id 引用的已有证据除外），都按第 6 章「文件」的方式与当前文件比对，在结构性检查之后、重复判断之前进行，即使随后会去重也照样比对。写入成功后，比对结果作为一次 `match`（连同 mtime 与大小）写进本机核验缓存。`web` 证据写入时不联网核对。
 
 ### 重复
 
@@ -290,7 +287,7 @@
 ```
 
 - 两个数组与参数一一对应，顺序相同。
-- `similar`：软提示，不影响写入。同作用域内与新记忆相似度达到阈值的生效记忆，最多 3 条，按相似度降序；`similarity` 为 0 到 1 的重叠系数；不含本次 `supersedes` 里的记忆。相似度定义与阈值与[复核](07-review.md)的相似对共用，见第 7 章。`deduped` 为真时为空数组。
+- `similar`：软提示，不影响写入。同作用域内与新记忆相似度达到阈值的生效记忆，最多 3 条，按相似度降序；`similarity` 为 0 到 1 的重叠系数；不含本次 `supersedes` 里的记忆。相似度定义与阈值见第 7 章。`deduped` 为真时为空数组。
 
 ## corroborate
 
@@ -348,33 +345,6 @@
 { memory, status: "retracted" }
 ```
 
-## distinguish
-
-声明两条相似的记忆各自成立，既不重复也不矛盾。声明之后这一对不再出现在复核的相似对里。
-
-**给模型的描述**：
-
-> 声明两条相似的记忆各自成立（不是重复，也不矛盾），之后 `review` 不再把这一对列为相似对。不可撤销：判断错了就取代或撤回其中一条。
-
-### 参数
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `memories` | string[] | 恰好两个不同的记忆 id，顺序无关 |
-| `project` | path? | |
-
-### 硬检查
-
-`INVALID_ARGS`（不是恰好两个不同的 id）；`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（任一条不是生效状态）。
-
-### 响应
-
-```
-{ memories: [id, id], deduped }
-```
-
-这一对已声明过并存时不新写，`deduped: true`。
-
 ## verify
 
 显式核验：回到证据的来源，确认摘录是否仍在。这是唯一会联网的工具。核验方式见第 6 章。
@@ -392,7 +362,7 @@
 | `include_web` | bool | `true` | 为假时跳过 `web` 证据 |
 | `project` | path? | — | |
 
-核验的对象是所选记忆**当前引用**的全部证据，同一条证据只核一次。结果写进本设备的核验缓存，不进日志。
+核验的对象是所选记忆**当前引用**的全部证据，同一条证据只核一次。结果写进本机的核验缓存，不进日志。
 
 ### 响应
 
