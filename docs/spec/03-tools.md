@@ -259,6 +259,8 @@
 | `MISSING_FIELD` | `evidence` 与 `memories` 都没给；或缺必填字段（`excerpt`、`source`、`speaker`、`url`、`command`、`exit_code`、`text`、`epistemic` 等） |
 | `EXCERPT_TOO_LONG` | 摘录超过 4096 字节。hint：只截取能支撑记忆的那一小段 |
 | `FILE_OUTSIDE_PROJECT` | `file` 的 `path` 以 `/` 开头或含 `..`。hint：项目外的文件按 `command` 记录（如 `cat` 的输出） |
+| `FILE_NOT_FOUND` | `file` 证据的文件在项目根下不存在或不可读。hint：检查 `path` 是否相对项目根 |
+| `EXCERPT_NOT_IN_FILE` | 文件存在，但摘录不在其中。hint：重新读取文件，逐字复制摘录 |
 | `TEXT_TOO_LONG` | 正文超过 500 字符。hint：一条记忆只写一个论断，拆成多条 |
 | `SCOPE_INVALID` | `scope` 不是 `global` 或 `project` |
 | `NO_EVIDENCE` | 记忆的 `evidence` 为空。hint：用户说「记住 X」时，这句话本身就是证据 |
@@ -267,7 +269,7 @@
 | `NOT_ACTIVE` | `supersedes` 中的记忆既不是生效也不是无据。被取代时 hint 给出它的后继 |
 | `DUPLICATE_TEXT` | 见下文「重复」 |
 
-> **待定**（[写入时是否核对文件证据的摘录](https://github.com/zibyn/almanac/issues/24)）：写入 `file` 证据时是否比对当前文件，比对不上是拒绝还是只写核验缓存。
+`FILE_NOT_FOUND` 与 `EXCERPT_NOT_IN_FILE` 是唯一读取来源的硬检查：本次调用新给出的每条 `file` 证据（按 id 引用的已有证据除外），都按第 6 章「文件」的方式与当前文件比对，在结构性检查之后、重复判断之前进行，即使随后会去重也照样比对。写入成功后，比对结果作为一次 `match`（连同 mtime 与大小）写进本设备核验缓存。`web` 证据写入时不联网核对。
 
 ### 重复
 
@@ -310,7 +312,7 @@
 
 ### 硬检查
 
-`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（记忆不是生效状态）；`NO_EVIDENCE`；`EVIDENCE_NOT_FOUND`；内联证据的 `MISSING_FIELD`、`EXCERPT_TOO_LONG`、`FILE_OUTSIDE_PROJECT`。
+`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（记忆不是生效状态）；`NO_EVIDENCE`；`EVIDENCE_NOT_FOUND`；内联证据的 `MISSING_FIELD`、`EXCERPT_TOO_LONG`、`FILE_OUTSIDE_PROJECT`、`FILE_NOT_FOUND`、`EXCERPT_NOT_IN_FILE`。
 
 ### 响应
 

@@ -32,6 +32,8 @@
 | `TOO_MANY_IDS` | `get` 的 `ids` 超过 20 个 | 分批取 | 3 |
 | `EXCERPT_TOO_LONG` | 摘录超过 4096 字节 | 只截取能支撑记忆的那一小段 | 3 |
 | `FILE_OUTSIDE_PROJECT` | `file` 来源的 `path` 以 `/` 开头或含 `..` | 项目外的文件按 `command` 记录（如 `cat` 的输出） | 3 |
+| `FILE_NOT_FOUND` | 写入的 `file` 证据在项目根下不存在或不可读 | 检查 `path` 是否相对项目根 | 3、6 |
+| `EXCERPT_NOT_IN_FILE` | 写入的 `file` 证据的摘录不在当前文件中 | 重新读取文件，逐字复制摘录 | 3、6 |
 | `TEXT_TOO_LONG` | 记忆正文超过 500 字符 | 一条记忆只写一个论断，拆成多条 | 3 |
 | `SCOPE_INVALID` | `scope` 不是 `global` 或 `project` | 必须显式选择，不按 cwd 默认 | 3 |
 | `NO_EVIDENCE` | 记忆或附证的 `evidence` 为空 | 用户说「记住 X」时，这句话本身就是证据 | 3 |

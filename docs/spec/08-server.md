@@ -8,7 +8,7 @@
 
 | 层 | 负责 | 运行在 |
 |---|---|---|
-| **本地前端**（CLI / MCP） | 由 `project` 路径解析项目标识与根提交；推断 Writer、git commit（第 9 章）；生成全部 id；`FILE_OUTSIDE_PROJECT` 等只看参数本身的检查；核验与核验缓存（第 6 章）；计算可能过期标记 | 每台设备 |
+| **本地前端**（CLI / MCP） | 由 `project` 路径解析项目标识与根提交；推断 Writer、git commit（第 9 章）；生成全部 id；`FILE_OUTSIDE_PROJECT` 等只看参数本身的检查；写入时比对文件摘录（`FILE_NOT_FOUND`、`EXCERPT_NOT_IN_FILE`，不过则不转发）；核验与核验缓存（第 6 章）；计算可能过期标记 | 每台设备 |
 | **存储核心** | 依赖状态的写入检查（`NOT_ACTIVE`、`DUPLICATE_TEXT`、`EVIDENCE_NOT_FOUND` 等）；追加日志；索引与检索；状态推导；`context` 的挑选与排版 | 本地模式在本机；远程模式在 server |
 
 前端只依赖存储核心的一个接口；它有两个实现：直接读写本机记忆库目录的本地实现，和走下文 HTTP 协议的远程实现。两种模式下，工具与命令的行为和输出相同。

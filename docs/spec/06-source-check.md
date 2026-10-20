@@ -49,7 +49,7 @@
 
 | 时机 | 核验什么 | 联网 |
 |---|---|---|
-| 写入（`record`、`corroborate`） | 不核验 | 否 |
+| 写入（`record`、`corroborate`） | 本次新给出的 `file` 证据；不符即拒绝写入（第 3 章），通过则记为 `match` | 否 |
 | `search`、`get` 返回前 | 惰性核验：结果中记忆当前引用的 `file` 证据 | 否 |
 | `verify` | 所选记忆当前引用的全部证据；`include_web: false` 时跳过网页 | 是 |
 | `review`、`context` | 不核验，只读缓存 | 否 |
