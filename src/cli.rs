@@ -18,6 +18,9 @@ pub fn run(args: Vec<String>) -> i32 {
     if cmd == "remind" {
         return crate::remind::run();
     }
+    if cmd == "mcp" {
+        return crate::mcp::run();
+    }
     if !crate::tools::is_tool(cmd) {
         eprintln!("INVALID_ARGS：未知命令 {cmd}");
         return 1;

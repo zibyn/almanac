@@ -3,6 +3,7 @@
 use crate::error::ToolError;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 
 pub struct Project {
     /// Project identity, e.g. `github.com/zibyn/almanac`, `git-root:<hash>`, `path:<abs>`.
@@ -15,13 +16,16 @@ pub struct Project {
     pub head: Option<String>,
 }
 
-/// Locates the project path: argument `project` → `CLAUDE_PROJECT_DIR` → cwd.
-// shortcut: no MCP `roots/list` step yet; the MCP ticket (#49) inserts it before the env var.
+/// The MCP client's root for the current tool call, set by `almanac mcp`; `None` under the CLI.
+pub static MCP_ROOT: Mutex<Option<String>> = Mutex::new(None);
+
+/// Locates the project path: argument `project` → MCP `roots/list` → `CLAUDE_PROJECT_DIR` → cwd.
 pub fn resolve(arg: Option<&str>) -> Result<Project, ToolError> {
     let env = std::env::var("CLAUDE_PROJECT_DIR")
         .ok()
         .filter(|v| !v.is_empty());
-    let path = match arg.map(String::from).or(env) {
+    let root = MCP_ROOT.lock().unwrap().clone();
+    let path = match arg.map(String::from).or(root).or(env) {
         Some(p) => PathBuf::from(p),
         None => std::env::current_dir()
             .map_err(|e| ToolError::invalid_args(format!("无法读取当前目录：{e}")))?,
