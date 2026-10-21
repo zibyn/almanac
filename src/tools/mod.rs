@@ -5,6 +5,7 @@ mod corroborate;
 mod get;
 mod record;
 mod retract;
+mod review;
 pub(crate) mod search;
 mod verify;
 
@@ -19,6 +20,7 @@ const TOOLS: &[&str] = &[
     "corroborate",
     "search",
     "verify",
+    "review",
 ];
 
 pub fn is_tool(name: &str) -> bool {
@@ -34,6 +36,7 @@ pub fn call(name: &str, args: &str) -> Result<Value, ToolError> {
         "corroborate" => corroborate::run(parse(args)?),
         "search" => search::run(parse(args)?),
         "verify" => verify::run(parse(args)?),
+        "review" => review::run(parse(args)?),
         _ => Err(ToolError::invalid_args(format!("未知工具 {name}"))),
     }
 }
