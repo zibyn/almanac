@@ -30,6 +30,10 @@ pub struct Writer {
 pub enum Event {
     EvidenceRecorded(Evidence),
     MemoryRecorded(Memory),
+    /// Two project identities declared to be one project (spec ch. 1 "项目别名").
+    ProjectAliased {
+        projects: Vec<String>,
+    },
     /// Any event type this binary does not know; skipped on replay.
     #[serde(other)]
     Unknown,

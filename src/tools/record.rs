@@ -11,7 +11,6 @@ use std::collections::HashMap;
 pub struct Args {
     evidence: Option<Vec<EvidenceIn>>,
     memories: Option<Vec<MemoryIn>>,
-    #[allow(dead_code)]
     project: Option<String>,
 }
 
@@ -24,7 +23,7 @@ struct EvidenceIn {
     source: SourceIn,
 }
 
-// shortcut: only `conversation` so far; file/web/command arrive with #35/#36.
+// shortcut: no web/command yet; they arrive with #35.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum SourceIn {
@@ -32,6 +31,10 @@ enum SourceIn {
         session: Option<String>,
         turn: Option<u64>,
         transcript_path: Option<String>,
+    },
+    File {
+        path: String,
+        line: Option<u64>,
     },
 }
 
@@ -73,6 +76,7 @@ impl Epistemic {
 pub fn run(args: Args) -> Result<Value, ToolError> {
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
     let state = super::load()?;
+    let project = crate::project::resolve(args.project.as_deref())?;
     let mut events = vec![];
 
     // ref or id → (id, source type)
@@ -82,6 +86,8 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         .map(|(e, _)| (e.id.clone(), (e.id.clone(), source_type(&e.source))))
         .collect();
     let mut ev_out = vec![];
+    // New file evidence to compare against disk once structural checks pass: (id, path, excerpt).
+    let mut file_checks = vec![];
     for e in args.evidence.unwrap_or_default() {
         let id = new_id("ev");
         let source = match e.source {
@@ -102,6 +108,15 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
                 }
                 s
             }
+            SourceIn::File { path, line } => {
+                crate::source_check::check_path(&path)?;
+                file_checks.push((id.clone(), path.clone(), e.excerpt.clone()));
+                let mut s = json!({ "type": "file", "project": project.id, "path": path });
+                if let Some(v) = line {
+                    s["line"] = json!(v);
+                }
+                s
+            }
         };
         let mut out = json!({ "id": id, "deduped": false });
         if let Some(r) = &e.local_ref {
@@ -119,10 +134,6 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
 
     let mut mem_out = vec![];
     for m in args.memories.unwrap_or_default() {
-        if m.scope == Scope::Project {
-            // shortcut: project scope arrives with #36.
-            return Err(ToolError::invalid_args("scope project 尚未实现"));
-        }
         let mut cited = vec![];
         let mut all_conversation = true;
         for r in &m.evidence {
@@ -138,21 +149,38 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         } else {
             Epistemic::Inferred
         });
+        let project_scope = m.scope == Scope::Project;
         let id = new_id("mem");
         mem_out.push(json!({ "id": id, "deduped": false, "similar": [] }));
         events.push(Event::MemoryRecorded(Memory {
             id,
             text: m.text,
-            scope: "global".into(),
-            project: None,
-            root_commit: None,
+            scope: if project_scope { "project" } else { "global" }.into(),
+            project: project_scope.then(|| project.id.clone()),
+            root_commit: project_scope.then(|| project.root_commit.clone()).flatten(),
             epistemic: epistemic.as_str().into(),
             evidence: cited,
             supersedes: m.supersedes.unwrap_or_default(),
         }));
     }
 
-    crate::log::append(&crate::log::home(), &Tx::new(writer, events)).map_err(super::io_error)?;
+    // Spec ch. 3: compared after structural checks, before dedup; even evidence later deduped is compared.
+    let mut checks = vec![];
+    for (id, path, excerpt) in file_checks {
+        checks.push((
+            id,
+            crate::source_check::check_file(&project.root, &path, &excerpt)?,
+        ));
+    }
+
+    let home = crate::log::home();
+    let mut tx = Tx::new(writer, events);
+    tx.git_commit = project.head;
+    crate::log::append(&home, &tx).map_err(super::io_error)?;
+    // The cache is a deletable local observation; failing to write it must not fail a committed write.
+    if let Err(e) = crate::source_check::store(&home, checks) {
+        eprintln!("almanac: failed to write check cache: {e}");
+    }
     Ok(json!({ "evidence": ev_out, "memories": mem_out }))
 }
 
