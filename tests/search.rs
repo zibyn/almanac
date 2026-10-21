@@ -238,3 +238,35 @@ fn scope_and_all_filter_by_current_project_and_alias_group() {
     assert_eq!(alias.code, 0, "{}", alias.stderr);
     assert_eq!(at("project", false), set(&[&p1, &p2]));
 }
+
+#[test]
+fn only_active_memories_by_default() {
+    let a = Almanac::new();
+    let (_, gone) = a.remember("foo 撤回");
+    let (_, kept) = a.remember("foo 保留");
+    a.tool("retract", json!({"memory": gone, "reason": "记错了"}))
+        .ok();
+    assert_eq!(
+        ids(&a.tool("search", json!({"query": "foo"})).ok()),
+        [kept.as_str()]
+    );
+    assert_eq!(ids(&a.tool("search", json!({})).ok()), [kept.as_str()]);
+}
+
+#[test]
+fn corroboration_bumps_last_at_and_evidence_count() {
+    let a = Almanac::new();
+    let (_, old) = a.remember("foo 旧的");
+    let (ev, new) = a.remember("foo 新的");
+    a.tool("corroborate", json!({"memory": old, "evidence": [ev]}))
+        .ok();
+    let r = a.tool("search", json!({})).ok();
+    assert_eq!(ids(&r), [old.as_str(), new.as_str()]);
+    assert_eq!(r["hits"][0]["evidence_count"], 2);
+    assert!(
+        r["hits"][0]["last_at"].as_str() > r["hits"][1]["last_at"].as_str(),
+        "{r}"
+    );
+    let r = a.tool("search", json!({"query": "foo"})).ok();
+    assert_eq!(ids(&r), [old.as_str(), new.as_str()]);
+}

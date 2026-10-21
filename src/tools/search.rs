@@ -90,15 +90,18 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
 }
 
 /// Latest record or corroboration time of a memory.
-// shortcut: only the recording time until corroboration lands (#37).
 fn last_at<'a>(s: &'a State, id: &str) -> &'a str {
-    &s.memories[id].1.at
+    s.corroborations
+        .get(id)
+        .and_then(|c| c.last())
+        .map_or(&s.memories[id].1.at, |(_, r)| &r.at)
 }
 
 fn memory_hit(s: &State, id: &str, score: f64, matched: Vec<String>) -> Value {
     let (m, recorded) = &s.memories[id];
+    let evidence = s.current_evidence(id);
     let mut source_types: Vec<&Value> = Vec::new();
-    for e in &m.evidence {
+    for e in &evidence {
         if let Some((ev, _)) = s.evidence.get(e)
             && !source_types.contains(&&ev.source["type"])
         {
@@ -114,7 +117,7 @@ fn memory_hit(s: &State, id: &str, score: f64, matched: Vec<String>) -> Value {
         "epistemic": m.epistemic,
         "writer": recorded.writer.name,
         "last_at": last_at(s, id),
-        "evidence_count": m.evidence.len(),
+        "evidence_count": evidence.len(),
         "source_types": source_types,
         // shortcut: lazy source check and `stale` arrive with #42.
         "stale": null,

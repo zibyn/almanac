@@ -30,6 +30,14 @@ pub struct Writer {
 pub enum Event {
     EvidenceRecorded(Evidence),
     MemoryRecorded(Memory),
+    Corroborated {
+        memory: String,
+        evidence: Vec<String>,
+    },
+    Retracted {
+        memory: String,
+        reason: String,
+    },
     /// Two project identities declared to be one project (spec ch. 1 "项目别名").
     ProjectAliased {
         projects: Vec<String>,

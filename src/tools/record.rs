@@ -17,7 +17,7 @@ pub struct Args {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EvidenceIn {
+pub(super) struct EvidenceIn {
     #[serde(rename = "ref")]
     local_ref: Option<String>,
     excerpt: String,
@@ -49,7 +49,7 @@ enum SourceIn {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MemoryIn {
+pub(super) struct MemoryIn {
     text: String,
     /// A string, not an enum, so a bad value is `SCOPE_INVALID` rather than `INVALID_ARGS`.
     scope: String,
@@ -97,10 +97,11 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     Ok(out)
 }
 
-type Checks = Vec<(String, crate::source_check::Check)>;
+pub(super) type Checks = Vec<(String, crate::source_check::Check)>;
 
-/// Runs under the write lock against freshly replayed state (spec ch. 2).
-fn build(
+/// Runs under the write lock against freshly replayed state (spec ch. 2). `corroborate` reuses
+/// it for inline evidence.
+pub(super) fn build(
     state: &State,
     writer: Writer,
     project: &crate::project::Project,
@@ -305,6 +306,9 @@ fn build(
                 ),
             )
             .hint(format!("改用 corroborate 给 {} 附证", old.id)));
+        }
+        for old in &supersedes {
+            super::check_replaceable(state, old)?;
         }
         let id = new_id("mem");
         mem_out.push(json!({ "id": id, "deduped": false, "similar": [] }));
