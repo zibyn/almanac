@@ -351,7 +351,8 @@ pub(super) fn build(
             super::check_replaceable(state, old)?;
         }
         let id = new_id("mem");
-        mem_out.push(json!({ "id": id, "deduped": false, "similar": [] }));
+        let similar = crate::similarity::similar(state, &m.text, &m.scope, &group, &supersedes);
+        mem_out.push(json!({ "id": id, "deduped": false, "similar": similar }));
         events.push(Event::MemoryRecorded(Memory {
             id,
             text: m.text,

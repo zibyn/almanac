@@ -9,6 +9,7 @@ mod project;
 mod purge;
 mod remind;
 mod secrets;
+mod similarity;
 mod source_check;
 mod state;
 mod tools;
