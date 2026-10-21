@@ -23,7 +23,7 @@ package.json                         只为 Pi：仅有 "pi" 键
 ```
 
 - 不用符号链接：Codex 安装时会丢弃符号链接。
-- 「CC 与 Codex 共用一个插件目录」尚未端到端实测，实现时验证。不行时的回退方案：另建 `.codex-plugin` 目录并复制一份 SKILL.md，加 CI 检查两份内容一致。
+- 「CC 与 Codex 共用一个插件目录」已按源码确认（`openai/codex@3f31c0a`）：Codex 依次找 `plugin.json`、`.codex-plugin/plugin.json`、`.claude-plugin/plugin.json`，marketplace 也读 `.claude-plugin/marketplace.json`，默认读 `skills/` 与 `hooks/hooks.json`；尚待真实宿主端到端实测。不行时的回退方案：另建 `.codex-plugin` 目录并复制一份 SKILL.md，加 CI 检查两份内容一致。
 - 插件里只有 SKILL.md、会话开始注入与写入提醒，不含 MCP 配置。
 
 ### 安装
@@ -34,7 +34,7 @@ package.json                         只为 Pi：仅有 "pi" 键
 | Codex | `codex plugin marketplace add zibyn/almanac`，然后 `codex plugin add almanac@almanac` |
 | Pi | `pi install git:github.com/zibyn/almanac` |
 
-- Codex：装完后要到 `/hooks` 信任 almanac 的 `SessionStart` 与 `Stop` hook，安装说明里写明，不做绕过。没有信任时，只是少了会话开始注入或写入提醒。`hooks.json` 尽量保持不变，因为每次改动都要用户重新信任。
+- Codex：装完后要到 `/hooks` 信任 almanac 的 `SessionStart` 与 `Stop` hook，安装说明里写明，不做绕过。没有信任时，只是少了会话开始注入或写入提醒。Codex 的信任钉住的是整个插件目录的内容哈希（`codex-rs/hooks/src/engine/plugin_fingerprint.rs`），不只是 `hooks.json`：插件目录里任何文件变化（含 SKILL.md、Pi 扩展）都要用户重新信任，所以插件目录要少改，安装说明写明更新后可能要重新信任。
 - 安装说明另写「人怎么看、怎么改」：看用 `almanac export`（第 4 章）；记东西就对智能体说「记住 X」；直接在终端操作时，给出 `ALMANAC_WRITER=human almanac record --json -`（heredoc 传参）与 `ALMANAC_WRITER=human almanac retract --json '{"memory":"mem_…","reason":"…"}'` 两个示例。不提供 `remember` / `forget` 之类的便捷命令。
 - Pi 的 git 来源不能指定子目录，一个仓库只能是一个包，所以用根目录的 `package.json`：
 
@@ -94,22 +94,25 @@ export default function (pi: ExtensionAPI) {
     return { message: { customType: "almanac-context", content: text, display: false } };
   });
 
-  pi.on("agent_before_settle", async (_event, ctx) => {
+  pi.on("agent_before_settle", async (event, ctx) => {
+    if (event.outcome !== "completed") return;
     const input = JSON.stringify({ session_id: ctx.sessionManager.getSessionId(), stop_hook_active: false });
-    const r = await pi.exec("almanac", ["remind"], { cwd: ctx.cwd, timeout: 5000, input });
+    const stdout = await runWithStdin("almanac", ["remind"], { cwd: ctx.cwd, timeout: 5000, input });
     let reason: string | undefined;
-    try { reason = JSON.parse(r.stdout).reason; } catch { return; }
+    try { reason = JSON.parse(stdout).reason; } catch { return; }
     if (!reason) return;
     return { entries: [{ type: "custom_message", customType: "almanac-remind", content: reason, display: false }], continue: true };
   });
 }
 ```
 
-`resume`、`fork`、`reload` 不注入，与 CC / Codex 的 matcher 对应。`agent_before_settle` 的返回形状、`getSessionId()` 与 `pi.exec` 的 stdin 传法，实现前按 Pi 版本复核。
+- `resume`、`fork`、`reload` 不注入，与 CC / Codex 的 matcher 对应。
+- 已按 Pi 1.3.0（`earendil-works/pi@16f5f0a`）复核：`agent_before_settle` 返回 `{ entries, continue }`、`ctx.sessionManager.getSessionId()` 如上。`pi.exec` 不能传 stdin（子进程 stdin 固定为 ignore），所以 `remind` 用 `node:child_process` 的 `spawn` 写 stdin（上面的 `runWithStdin`）；实现见 `plugins/almanac/pi/almanac.ts`。
+- `agent_before_settle` 在中断、出错时也触发（`event.outcome` 为 `aborted` / `error`），只在 `completed` 时调 `remind`，与「用户中断时 Stop 不触发」对应。
 
 ## 写入提醒
 
-[写入提醒](../../GLOSSARY.md)由 `almanac remind`（第 4 章）实现：计数、间隔、文案都在二进制里，以后调整不改 `hooks.json`，Codex 用户无需重新信任。
+[写入提醒](../../GLOSSARY.md)由 `almanac remind`（第 4 章）实现：计数、间隔、文案都在二进制里，以后调整不改插件目录，Codex 用户无需重新信任。
 
 - **只挂 Stop**：CC、Codex 的 `Stop`，Pi 的 `agent_before_settle`。这是三家唯一能让模型接着行动的收尾点：`PreCompact` 的输出到不了模型，`SessionEnd` / `session_shutdown` 时模型已不能行动。
 - Stop 在主智能体每轮回复结束都触发，所以由 `remind` 按轮计数，每满 N 轮（默认 15）才提醒一次。

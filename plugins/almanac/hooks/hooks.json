@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [{ "type": "command", "command": "almanac context" }]
+      }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "almanac remind" }] }
+    ]
+  }
+}

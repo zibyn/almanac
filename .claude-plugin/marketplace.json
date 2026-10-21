@@ -1,0 +1,14 @@
+{
+  "name": "almanac",
+  "description": "almanac：带证据的智能体长期记忆",
+  "owner": { "name": "zibyn" },
+  "plugins": [
+    {
+      "name": "almanac",
+      "source": "./plugins/almanac",
+      "description": "智能体的长期记忆：SKILL.md、会话开始注入与写入提醒（需要 PATH 上的 almanac 二进制）",
+      "category": "Productivity",
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" }
+    }
+  ]
+}
