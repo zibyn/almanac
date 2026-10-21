@@ -6,6 +6,7 @@ mod error;
 mod export;
 mod index;
 mod log;
+mod mcp;
 mod model;
 mod project;
 mod purge;

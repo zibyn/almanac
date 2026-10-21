@@ -6,6 +6,7 @@ mod get;
 mod record;
 mod retract;
 mod review;
+pub(crate) mod schema;
 pub(crate) mod search;
 mod verify;
 

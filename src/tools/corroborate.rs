@@ -17,7 +17,7 @@ pub struct Args {
 }
 
 pub fn run(args: Args) -> Result<Value, ToolError> {
-    let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
+    let writer = crate::writer::current()?;
     let project = crate::project::resolve(args.project.as_deref())?;
     // Inline evidence goes through `record`'s checks and dedup; `ref` means nothing here.
     let mut inline: Vec<(usize, EvidenceIn)> = vec![];

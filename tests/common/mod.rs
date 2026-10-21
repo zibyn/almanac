@@ -92,21 +92,25 @@ impl Almanac {
         self.env.retain(|(key, _)| key != k);
     }
 
-    /// Runs `almanac <args…>`, feeding `stdin` if given.
-    pub fn run(&self, args: &[&str], stdin: Option<&str>) -> Out {
+    /// Spawns `almanac <args…>` with this store's env and cwd, all three pipes captured.
+    pub fn spawn(&self, args: &[&str]) -> std::process::Child {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_almanac"));
         if let Some(d) = &self.cwd {
             cmd.current_dir(d);
         }
-        let mut child = cmd
-            .args(args)
+        cmd.args(args)
             .env_clear()
             .envs(self.env.iter().cloned())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .unwrap();
+            .unwrap()
+    }
+
+    /// Runs `almanac <args…>`, feeding `stdin` if given.
+    pub fn run(&self, args: &[&str], stdin: Option<&str>) -> Out {
+        let mut child = self.spawn(args);
         let mut pipe = child.stdin.take().unwrap();
         if let Some(s) = stdin {
             pipe.write_all(s.as_bytes()).unwrap();

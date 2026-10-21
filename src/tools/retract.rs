@@ -18,7 +18,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         return Err(super::missing_field("reason"));
     }
     crate::secrets::check([("reason".to_string(), args.reason.as_str())])?;
-    let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
+    let writer = crate::writer::current()?;
     let project = crate::project::resolve(args.project.as_deref())?;
     let memory = args.memory.clone();
     crate::log::write(&crate::log::home(), |state| {
