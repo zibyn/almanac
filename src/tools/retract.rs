@@ -28,6 +28,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
             vec![Event::Retracted {
                 memory: args.memory,
                 reason: args.reason,
+                purged: None,
             }],
         );
         tx.git_commit = project.head;

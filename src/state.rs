@@ -52,7 +52,7 @@ impl State {
                             .or_default()
                             .push((evidence.clone(), tx.recorded()));
                     }
-                    Event::Retracted { memory, reason } => {
+                    Event::Retracted { memory, reason, .. } => {
                         s.retractions
                             .insert(memory.clone(), (reason.clone(), tx.recorded()));
                     }
@@ -86,16 +86,52 @@ impl State {
         group
     }
 
-    /// Lifecycle status of a memory.
-    // shortcut: no `purged` / `unsupported` yet (they sit above and below `superseded`); #44 adds them.
+    /// Lifecycle status of a memory: the first that holds, top down (spec ch. 1 「记忆的状态」).
     pub fn status(&self, memory: &str) -> &'static str {
-        if self.retractions.contains_key(memory) {
+        let evidence = self.current_evidence(memory);
+        if self.memory_purged(memory) {
+            "purged"
+        } else if self.retractions.contains_key(memory) {
             "retracted"
         } else if self.superseded_by.contains_key(memory) {
             "superseded"
+        } else if !evidence.is_empty() && evidence.iter().all(|e| self.evidence_purged(e)) {
+            "unsupported"
         } else {
             "active"
         }
+    }
+
+    pub fn memory_purged(&self, id: &str) -> bool {
+        self.memories
+            .get(id)
+            .is_some_and(|(m, _)| m.purged.is_some())
+    }
+
+    pub fn evidence_purged(&self, id: &str) -> bool {
+        self.evidence
+            .get(id)
+            .is_some_and(|(e, _)| e.purged.is_some())
+    }
+
+    /// Memories on `memory`'s supersession chain, itself excluded: every predecessor and every
+    /// successor, followed transitively (not siblings of a split).
+    pub fn chain(&self, memory: &str) -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        let up = |m: &str| self.memories.get(m).map(|(m, _)| m.supersedes.clone());
+        let down = |m: &str| self.superseded_by.get(m).cloned();
+        for step in [&up as &dyn Fn(&str) -> Option<Vec<String>>, &down] {
+            let mut todo = vec![memory.to_string()];
+            while let Some(m) = todo.pop() {
+                for next in step(&m).unwrap_or_default() {
+                    if next != memory && !out.contains(&next) {
+                        out.push(next.clone());
+                        todo.push(next);
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Evidence a memory currently cites: recorded evidence, then each corroboration's, in log order.

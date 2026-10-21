@@ -68,7 +68,7 @@ fn build(
         .evidence
         .iter()
         .filter_map(Value::as_str)
-        .find(|id| !state.evidence.contains_key(*id))
+        .find(|id| !state.evidence.contains_key(*id) || state.evidence_purged(id))
     {
         return Err(ToolError::new(
             "EVIDENCE_NOT_FOUND",
