@@ -154,6 +154,21 @@ fn only_web_sourced_memories_mean_no_output() {
 }
 
 #[test]
+fn review_issues_alone_still_print_title_and_review_line() {
+    let d = tempfile::tempdir().unwrap();
+    let a = in_dir(d.path());
+    let (ev, _) = a.remember("无据的");
+    a.run_tty(&["purge", &ev, "--reason", "r"], "n\nyes\n");
+    let o = context(&a, &[]).stdout;
+    assert!(o.starts_with("# almanac 记忆"), "{o}");
+    assert!(
+        o.ends_with("\n\n待复核：无据 1。运行 almanac review 查看。\n"),
+        "{o}"
+    );
+    assert!(!o.contains("## "), "{o}");
+}
+
+#[test]
 fn truncates_whole_items_and_counts_the_rest() {
     let d = tempfile::tempdir().unwrap();
     let a = in_dir(d.path());

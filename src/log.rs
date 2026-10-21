@@ -260,7 +260,6 @@ fn without_torn_line(raw: &[u8]) -> &[u8] {
     }
 }
 
-// shortcut: spec ch. 10 has no code for I/O failures; reported as STORE_IO until the spec names one.
 pub fn io_error(e: std::io::Error) -> ToolError {
-    ToolError::new("STORE_IO", format!("读写记忆库失败：{e}"))
+    ToolError::new("STORE_IO", format!("读写记忆库失败：{e}")).hint("检查记忆库目录权限")
 }

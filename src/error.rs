@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ToolError {
     pub code: &'static str,
     pub message: String,

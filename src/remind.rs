@@ -4,6 +4,8 @@ use serde_json::{Value, json};
 use std::io::Read;
 use std::path::{Component, Path};
 
+const DEFAULT_EVERY: u64 = 15;
+
 const REASON: &str = "almanac：回顾本次会话，有没有以后还会用到、有用户原话或文件支撑的论断（约定、偏好、踩过的坑）？有就 `record`，情况变了用 `supersedes`；没有就什么都不做，直接结束，不要回复这条提醒。";
 
 /// Always exits 0.
@@ -35,7 +37,12 @@ fn should_remind() -> Option<bool> {
     if !home.is_dir() {
         return None;
     }
-    let every = remind_every(&home)?;
+    let every = remind_every(&home).unwrap_or_else(|| {
+        eprintln!(
+            "almanac：config.toml 读不了或 remind_every 不是非负整数，按默认 {DEFAULT_EVERY} 提醒"
+        );
+        DEFAULT_EVERY
+    });
     if every == 0 {
         return Some(false);
     }
@@ -52,12 +59,12 @@ fn should_remind() -> Option<bool> {
     Some(n.is_multiple_of(every))
 }
 
-/// `remind_every` from `config.toml`, default 15; `None` if unreadable or the value is not a non-negative int.
+/// `remind_every` from `config.toml`, `DEFAULT_EVERY` when absent; `None` if unreadable or the value is not a non-negative int.
 // shortcut: line-based `key = int` parse, not full TOML; switch to the `toml` crate when config grows.
 fn remind_every(home: &Path) -> Option<u64> {
     let raw = match std::fs::read_to_string(home.join("config.toml")) {
         Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(15),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(DEFAULT_EVERY),
         Err(_) => return None,
     };
     for line in raw.lines() {
@@ -68,5 +75,5 @@ fn remind_every(home: &Path) -> Option<u64> {
             return v.trim().parse().ok();
         }
     }
-    Some(15)
+    Some(DEFAULT_EVERY)
 }

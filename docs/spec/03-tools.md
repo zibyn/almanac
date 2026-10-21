@@ -36,7 +36,9 @@
 ```
 
 - `hint` 可选，告诉智能体下一步怎么改。全部错误码见第 10 章。
-- 任何工具都可能返回 `INVALID_ARGS`。写工具还可能返回 `NO_WRITER`（第 9 章）、`STORE_BUSY` 与 `STORE_NEWER`（第 2 章）。
+- 任何工具都可能返回 `INVALID_ARGS` 与 `STORE_IO`（第 2 章）。写工具还可能返回 `NO_WRITER`（第 9 章）、`STORE_BUSY` 与 `STORE_NEWER`（第 2 章）。
+- 参数 JSON 的解析（`INVALID_ARGS`、`MISSING_FIELD`）先于 Writer 推断：参数有错时报参数错误，不报 `NO_WRITER`。
+- 多处不过检查时只报第一处：按下文各工具「硬检查」所述的先后，同一类检查按参数顺序。
 - 写工具全部检查通过才写日志：一次调用＝一个事务，要么整体生效，要么什么都不写。
 
 ### 作用域过滤
@@ -49,6 +51,8 @@
 | `all` | bool | `false` | 为真时「项目」不限于当前项目，覆盖库里所有项目 |
 
 「当前项目」总是包括它的[项目别名（Project Alias）](../../GLOSSARY.md)组（第 1 章）。
+
+只有范围用到当前项目时（`scope` 不是 `global` 且 `all` 为假；`verify` 另要求没给 `ids`），项目路径解析失败才使调用失败（`INVALID_ARGS`，第 1 章）；否则静默当作没有当前项目，`search` 也就不给 `alias_hint`。
 
 ### 共用的输出结构
 
@@ -92,13 +96,13 @@
 | `status` | 状态值数组 | `["active"]` | `active` / `superseded` / `retracted` / `unsupported` / `purged`；已清除的没有全文字段，只在省略 `query` 时可能列出 |
 | `epistemic` | 认知状态值数组? | — | `observed` / `user_stated` / `inferred` |
 | `writer` | string? | — | Writer 的 `name` |
-| `cites` | string? | — | 证据 id：只返回当前引用它的记忆 |
+| `cites` | string? | — | 证据 id：只返回当前引用它的记忆（不论状态，仍受 `status` 过滤） |
 | `stale_only` | bool | `false` | 只返回带可能过期标记的记忆 |
 | `source_type` | 来源类型数组? | — | 仅 `kind=evidence`：`conversation` / `file` / `web` / `command` |
 | `limit` | int | 10 | 1–50 |
 | `project` | path? | — | 见「共同约定」 |
 
-`kind=evidence` 时检索整个库，只接受 `query`、`source_type`、`limit`、`project`；给出只对记忆有效的参数（`scope`、`all`、`status`、`epistemic`、`writer`、`cites`、`stale_only`）报 `INVALID_ARGS`。`kind=memory` 时给出 `source_type` 同样报 `INVALID_ARGS`。
+`kind=evidence` 时检索整个库，只接受 `query`、`source_type`、`limit`、`project`；给出只对记忆有效的参数（`scope`、`all`、`status`、`epistemic`、`writer`、`cites`、`stale_only`）报 `INVALID_ARGS`，即使给的是默认值。`kind=memory` 时给出 `source_type` 同样报 `INVALID_ARGS`。
 
 ### 响应
 
@@ -118,14 +122,14 @@
 | `writer` | 记录它的 Writer 的 `name` |
 | `last_at` | 最近一次记录或附证的时间 |
 | `evidence_count` | 当前引用的证据条数 |
-| `source_types` | 当前证据的来源类型去重（第 1 章「派生关系」），如 `["web"]`；不用 `get` 也能看出记忆是否来自网页 |
+| `source_types` | 当前证据的来源类型去重（第 1 章「派生关系」），按在当前证据中首次出现的顺序，如 `["web"]`；不用 `get` 也能看出记忆是否来自网页 |
 | `stale` | `Stale` |
 | `score` | 排序分，只用于比较同一次结果内的先后 |
 | `matched_terms` | 查询中命中的词（分词后），无 `query` 时为空数组 |
 
-`EvidenceHit`：`id`、`kind: "evidence"`、`source_type`、`excerpt`（前 200 个字符）、`truncated`（bool）、`cited_by`（当前引用它的记忆 id）、`score`、`matched_terms`。
+`EvidenceHit`：`id`、`kind: "evidence"`、`source_type`、`excerpt`（前 200 个字符）、`truncated`（bool）、`cited_by`（当前引用它的记忆 id，含已被取代、撤回的）、`score`、`matched_terms`。被清除的证据不被 `query` 命中，但省略 `query` 时照常列出，以墓碑 `purged` 代替 `excerpt`。
 
-`alias_hint`：当前项目标识与库里另一个项目标识的根提交相同、且尚未声明别名时出现，提示人可以运行 `almanac project alias`（第 1 章）。
+`alias_hint`：当前项目标识与库里另一个项目标识的根提交相同、且尚未声明别名时出现，提示人可以运行 `almanac project alias`（第 1 章）。库里的项目根提交只取自记忆的 `root_commit`。不论 `kind`、`scope` 取什么，只要能解析出当前项目就判断。
 
 ## get
 
@@ -139,7 +143,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `ids` | string[] | 1–20 个，可混合记忆 id 与证据 id；超过报 `TOO_MANY_IDS` |
+| `ids` | string[] | 1–20 个，可混合记忆 id 与证据 id；超过报 `TOO_MANY_IDS`，为空报 `INVALID_ARGS` |
 | `project` | path? | |
 
 ### 响应
@@ -163,11 +167,13 @@
 | `retraction` | `{ reason, recorded: Recorded }` 或 `null` |
 | `stale` | `Stale` |
 
-`Evidence`：`id`、`kind: "evidence"`、`excerpt`、`source`（第 1 章）、`recorded`（`Recorded`）、`check`（`Check`）、`cited_by`。
+`Evidence`：`id`、`kind: "evidence"`、`excerpt`、`source`（第 1 章）、`recorded`（`Recorded`）、`check`（`Check`）、`cited_by`（含已被取代、撤回的记忆）。
+
+惰性核验只针对取到的记忆当前引用的证据；直接按证据 id 取时只读缓存，不核验。
 
 被清除的证据以墓碑 `purged: { at, reason, by }` 代替 `excerpt`，`source` 只剩 `type`（第 1 章）。
 
-已清除的记忆照常返回，`status` 为 `purged`，以同样的墓碑代替 `text`，其余字段与派生关系不变；`retraction` 若有，`reason` 换成墓碑。`search` 的结果项同此。
+已清除的记忆照常返回，`status` 为 `purged`，以同样的墓碑代替 `text`，其余字段与派生关系不变；`retraction` 若有，为 `{ purged, recorded }`（墓碑代替 `reason`）。`search` 的结果项同此。
 
 ## review
 
@@ -215,7 +221,9 @@
 | `memories` | MemoryIn[]? | 新记忆 |
 | `project` | path? | 决定 `scope: "project"` 的项目，以及 `file` 证据的项目根 |
 
-`evidence` 与 `memories` 至少给一个。
+`evidence` 与 `memories` 至少给一个，且不能都是空数组。
+
+只有本次调用含 `scope: "project"` 的记忆或 `file` 证据时，项目路径解析失败才使调用失败（`INVALID_ARGS`，第 1 章）。否则路径无效也照常写入，事务不带 `git_commit`。
 
 `EvidenceIn`：
 
@@ -242,9 +250,9 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `text` | string | 一条论断，不超过 500 个 Unicode 字符 |
-| `scope` | `global` \| `project` | 必填 |
+| `scope` | `global` \| `project` | 必填；缺失或取其他值都报 `SCOPE_INVALID` |
 | `epistemic` | `observed` \| `user_stated` \| `inferred` | 可省略；省略时由证据推出（第 1 章） |
-| `evidence` | string[] | ≥1；每项是本次调用的 `ref` 或已有证据 id |
+| `evidence` | string[] | ≥1；每项是本次调用的 `ref` 或已有证据 id；缺失与空数组同样报 `NO_EVIDENCE` |
 | `supersedes` | string[]? | 被取代的记忆 id |
 
 `scope: "project"` 时，`project` 与 `root_commit` 由 `project` 参数推出（第 1 章）。
@@ -255,13 +263,13 @@
 
 | 错误码 | 条件 |
 |---|---|
-| `MISSING_FIELD` | `evidence` 与 `memories` 都没给；或缺必填字段（`excerpt`、`source`、`url`、`command`、`exit_code`、`text` 等） |
+| `MISSING_FIELD` | `evidence` 与 `memories` 都没给或都为空；或缺必填字段（`excerpt`、`source`、`url`、`command`、`exit_code`、`text` 等；不含 `scope` 与记忆的 `evidence`） |
 | `EXCERPT_TOO_LONG` | 摘录超过 4096 字节。hint：只截取能支撑记忆的那一小段 |
 | `FILE_OUTSIDE_PROJECT` | `file` 的 `path` 以 `/` 开头或含 `..`。hint：项目外的文件按 `command` 记录（如 `cat` 的输出） |
 | `FILE_NOT_FOUND` | `file` 证据的文件在项目根下不存在或不可读。hint：检查 `path` 是否相对项目根 |
 | `EXCERPT_NOT_IN_FILE` | 文件存在，但摘录不在其中。hint：重新读取文件，逐字复制摘录 |
 | `TEXT_TOO_LONG` | 正文超过 500 字符。hint：一条记忆只写一个论断，拆成多条 |
-| `SCOPE_INVALID` | `scope` 不是 `global` 或 `project` |
+| `SCOPE_INVALID` | `scope` 缺失，或不是 `global` 或 `project` |
 | `NO_EVIDENCE` | 记忆的 `evidence` 为空。hint：用户说「记住 X」时，这句话本身就是证据 |
 | `EVIDENCE_NOT_FOUND` | 引用的 `ref` 未在本次调用中定义，或证据 id 不存在、已被清除 |
 | `MEMORY_NOT_FOUND` | `supersedes` 中的记忆不存在 |
@@ -269,11 +277,13 @@
 | `SECRET_DETECTED` | 写入的文本命中下文「密钥检查」的规则 |
 | `DUPLICATE_TEXT` | 见下文「重复」 |
 
+检查顺序：先逐条检查 `evidence`（按参数顺序），再逐条检查 `memories` 的结构（`SECRET_DETECTED`、`SCOPE_INVALID`、`TEXT_TOO_LONG`、`NO_EVIDENCE`、`EVIDENCE_NOT_FOUND`），然后做文件比对，最后逐条做重复判断与 `supersedes` 检查。
+
 `FILE_NOT_FOUND` 与 `EXCERPT_NOT_IN_FILE` 是唯一读取来源的硬检查：本次调用新给出的每条 `file` 证据（按 id 引用的已有证据除外），都按第 6 章「文件」的方式与当前文件比对，在结构性检查之后、重复判断之前进行，即使随后会去重也照样比对。写入成功后，比对结果作为一次 `match`（连同 mtime 与大小）写进本机核验缓存。`web` 证据写入时不联网核对。
 
 ### 密钥检查
 
-写入前，用下表的固定规则扫描本次调用新写入的全部文本：证据的 `excerpt`，`source` 中除 `type`、`fetched_at` 外的字符串字段（如 `command`、`cwd`、`url`、`path`、`session`、`transcript_path`），记忆的 `text`，`retract` 的 `reason`。按 id 引用的已有证据不再扫描。任何一处命中即报 `SECRET_DETECTED`，整体拒绝；它与其他结构性检查同时进行，先于文件比对。
+写入前，用下表的固定规则扫描本次调用新写入的全部文本：证据的 `excerpt`，`source` 中除 `type`、`fetched_at` 外的字符串字段（如 `command`、`cwd`、`url`、`path`、`session`、`transcript_path`），记忆的 `text`，`retract` 的 `reason`。按 id 引用的已有证据不再扫描。任何一处命中即报 `SECRET_DETECTED`，整体拒绝；它与其他结构性检查同时进行，先于文件比对。自动填写的字段（`host`、`session` 的缺省值、`file` 的 `project`）不扫描。`corroborate` 的内联证据在记忆存在与状态检查之后扫描；`retract` 的 `reason` 在 `MEMORY_NOT_FOUND` 之前扫描。
 
 | 规则 | 模式（正则） |
 |---|---|
@@ -289,21 +299,22 @@
 | `jwt` | `\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}` |
 | `url_credentials` | `[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@` |
 
+- `\b` 按 ASCII 判定词边界（汉字算非词字符）：有意让紧挨中文的密钥（如 `密钥AKIA…`）也能命中。
 - 规则内置、固定，以精确为先：只收有明显前缀或结构的格式，不做熵值启发、不按 `password=` 等关键词匹配，不可由用户配置。
 - 规则只作用于写入，重放日志时不检查，所以规则在以后版本中增删不影响已有数据，也不需要版本号或指纹。
-- `message` 给出命中的规则名、字段路径（如 `evidence[0].excerpt`、`evidence[1].source.command`、`reason`）和字符偏移，**不回显命中的值**：错误输出会进入智能体上下文和宿主的会话记录。多处命中时只报第一处。
+- `message` 给出命中的规则名、字段路径（如 `evidence[0].excerpt`、`evidence[1].source.command`、`reason`）和字符偏移（从 0 起的 Unicode 字符数），**不回显命中的值**：错误输出会进入智能体上下文和宿主的会话记录。多处命中时只报第一处：先按字段顺序（证据依次为 `excerpt`、`source` 各字段，再到记忆的 `text`），同一字段内取位置最前的，位置相同取上表靠前的规则。
 - 没有强制写入的开关：智能体也能传参，开关会让拦截失效。误报时由智能体按 hint 改写；规则误报在后续版本中修正。
 - hint：对话、命令证据与记忆正文，把密钥换成 `<redacted>` 后重试；`file` 证据换一段不含密钥的更窄摘录（打码后的摘录对不上文件）；密钥本身就是要记的内容时，不要记录。
 - 已在库里的密钥不扫描，`review` 也不报；抹除只能由人 `almanac purge`（第 4 章）。
 
 ### 重复
 
-- **证据**：与已有证据指纹相同（第 1 章）则不新写，返回已有 id，`deduped: true`。同一调用里指纹相同的两条也合为一条。
+- **证据**：与已有证据指纹相同（第 1 章）则不新写，返回已有 id，`deduped: true`。同一调用里指纹相同的两条也合为一条：第一条 `deduped: false`，之后的 `deduped: true`，id 相同。
 - **记忆**：同作用域（项目作用域按别名组）内已有一条生效记忆，归一化后正文相同（归一化同第 1 章的指纹）：
   - 本次的证据都已被它引用，且本次的 `supersedes` 都已在它的 `supersedes` 里：视为重试，不新写，返回它的 id，`deduped: true`。
   - 否则报 `DUPLICATE_TEXT`，hint：改用 `corroborate` 给它附证。
 
-重复判断先于 `supersedes` 检查，所以一次成功的取代被重试时返回 `deduped`，而不是 `NOT_ACTIVE`。
+重复判断先于 `supersedes` 检查，所以一次成功的取代被重试时返回 `deduped`，而不是 `NOT_ACTIVE`。同一次调用里的多条记忆之间不做重复判断。
 
 ### 响应
 
@@ -315,7 +326,7 @@
 ```
 
 - 两个数组与参数一一对应，顺序相同。
-- `similar`：软提示，不影响写入。同作用域内与新记忆相似度达到阈值的生效记忆，最多 3 条，按相似度降序；`similarity` 为 0 到 1 的重叠系数；不含本次 `supersedes` 里的记忆。相似度定义与阈值见第 7 章。`deduped` 为真时为空数组。
+- `similar`：软提示，不影响写入。同作用域内与新记忆相似度达到阈值的生效记忆，最多 3 条，按相似度降序；`similarity` 为 0 到 1 的重叠系数，原样输出浮点数、不取整；不含本次 `supersedes` 里的记忆，也不与同一次调用里的其他新记忆比较。相似度定义与阈值见第 7 章。`deduped` 为真时为空数组。
 
 ## corroborate
 
@@ -330,14 +341,16 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `memory` | string | 记忆 id |
-| `evidence` | (string \| EvidenceIn)[] | ≥1；已有证据 id，或内联新证据（同 `record`，`ref` 无意义，忽略） |
+| `evidence` | (string \| EvidenceIn)[] | ≥1；已有证据 id，或内联新证据（同 `record`，`ref` 无意义，忽略）；其他类型的项报 `INVALID_ARGS` |
 | `project` | path? | |
 
 内联证据与 `corroborated` 事件写在同一个事务里；内联证据的检查与重复判断同 `record`。
 
 ### 硬检查
 
-`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（记忆不是生效状态）；`NO_EVIDENCE`；`EVIDENCE_NOT_FOUND`；内联证据的 `MISSING_FIELD`、`EXCERPT_TOO_LONG`、`FILE_OUTSIDE_PROJECT`、`SECRET_DETECTED`、`FILE_NOT_FOUND`、`EXCERPT_NOT_IN_FILE`。
+按序：内联证据格式不对（`INVALID_ARGS`、`MISSING_FIELD`）；`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（记忆不是生效状态）；`NO_EVIDENCE`；`EVIDENCE_NOT_FOUND`（按 id 引用的证据）；内联证据的其余检查同 `record`（`EXCERPT_TOO_LONG`、`SECRET_DETECTED`、`FILE_OUTSIDE_PROJECT`、`FILE_NOT_FOUND`、`EXCERPT_NOT_IN_FILE`）。
+
+总是解析项目（为事务的 `git_commit` 与内联 `file` 证据）；解析失败即调用失败。
 
 ### 响应
 
@@ -360,12 +373,14 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `memory` | string | 记忆 id |
-| `reason` | string | 非空（去掉首尾空白后） |
+| `reason` | string | 非空（去掉首尾空白后）；按原样写入，不去空白 |
 | `project` | path? | |
 
 ### 硬检查
 
-`MEMORY_NOT_FOUND`；`MISSING_FIELD`（`reason` 为空）；`SECRET_DETECTED`（`reason` 命中密钥规则，见 `record`「密钥检查」）；`NOT_ACTIVE`（记忆既不是生效也不是无据）。
+按序：`MISSING_FIELD`（`reason` 为空）；`SECRET_DETECTED`（`reason` 命中密钥规则，见 `record`「密钥检查」）；`MEMORY_NOT_FOUND`；`NOT_ACTIVE`（记忆既不是生效也不是无据）。
+
+总是解析项目（为事务的 `git_commit`）；解析失败即调用失败。
 
 ### 响应
 
@@ -385,7 +400,7 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `ids` | string[]? | — | 记忆 id；给出时只核验这些记忆，忽略 `scope`、`all` |
+| `ids` | string[]? | — | 记忆 id；给出时只核验这些记忆（不论状态），忽略 `scope`、`all` |
 | `scope`、`all` | | | 见「作用域过滤」；只核验范围内的生效记忆 |
 | `include_web` | bool | `true` | 为假时跳过 `web` 证据 |
 | `project` | path? | — | |
@@ -402,8 +417,8 @@
 }
 ```
 
-- `checked` 不含被跳过的 `web` 证据。
-- `network_requests`：本次实际发出的请求。
-- `stale`：所选记忆中核验后带可能过期标记的那些。
+- `checked` 不含被跳过的 `web` 证据，也不含本机定位不到其项目的 `file` 证据（第 6 章）。
+- `network_requests`：本次实际发出的请求，每条证据一项（URL 相同的证据各请求一次），只记初始 URL，不记重定向。
+- `stale`：所选记忆中核验后带可能过期标记的那些。给了 `ids` 时按 `ids` 的顺序（去重），否则按记忆 id 升序。
 
 `ids` 中的记忆不存在报 `MEMORY_NOT_FOUND`。

@@ -122,3 +122,18 @@ fn session_id_cannot_escape_the_cache_dir() {
     assert!(!a.home.path().join("escape").exists());
     assert!(!a.home.path().join("cache/remind/a").exists());
 }
+
+#[test]
+fn invalid_interval_falls_back_to_15_with_warning() {
+    let a = with_every("abc");
+    for _ in 0..14 {
+        let o = stop(&a, "s");
+        assert_eq!((o.code, o.stdout.as_str()), (0, ""));
+        assert!(o.stderr.contains("remind_every"), "stderr: {}", o.stderr);
+    }
+    let o = stop(&a, "s");
+    assert_eq!(
+        o.json(),
+        serde_json::json!({"decision": "block", "reason": REASON})
+    );
+}

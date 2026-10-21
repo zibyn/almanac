@@ -80,7 +80,7 @@ EOF
   - `command`：`{"type":"command","command":"cargo build","exit_code":0}`，摘录是输出里的相关几行。
   - `web`：`{"type":"web","url":"https://…"}`。
 - 认知状态 `epistemic` 一般省略：证据全是对话时默认 `user_stated`，否则默认 `inferred`。你亲眼从工具输出、文件里看到的，显式写 `"epistemic":"observed"`。
-- 响应里 `memories[].similar` 列出相似的生效记忆，看一眼：如果新写的其实是其中一条的更新，把新写的那条 `retract`（原因写「重复，应取代 mem_…」），再按下节用 `supersedes` 重记。
+- 响应里 `memories[].similar` 列出相似的生效记忆，看一眼：如果新写的其实是其中一条的更新，先把新写的那条 `retract`（原因如「应为更新，取代 mem_…」），再按下节带 `supersedes` 重新 `record`。不先撤回就直接重记同一正文会报 `DUPLICATE_TEXT`。
 
 ## 更新与遗忘
 

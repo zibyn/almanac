@@ -26,14 +26,14 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 
 | `type` | 字段 | 可否核验 |
 |---|---|---|
-| `conversation` | `host`：宿主名，自动填为本次写入的 Writer 名；`session?`：会话标识，自动填为 Writer 的会话；`turn?`：轮次；`transcript_path?`：只作参考，不回查 | 不可核验 |
+| `conversation` | `host`：宿主名，自动填为本次写入的 Writer 名；`session?`：会话标识，自动填为 Writer 的会话；`turn?`：轮次，非负整数；`transcript_path?`：只作参考，不回查 | 不可核验 |
 | `file` | `project`：项目标识；`path`：相对项目根的路径，不得以 `/` 开头或含 `..`；`line?`：行号提示 | 可核验 |
 | `web` | `url`：`http` 或 `https`；`fetched_at`：抓取时间，未给出时填写入时间 | 可核验 |
 | `command` | `command`：命令行；`cwd?`；`exit_code`：整数（必填） | 不可核验 |
 
 - `conversation` 证据只收**用户**说的话；智能体自己说的话不能作为证据。人的直接陈述（包括人通过 CLI 写入）也记为 `conversation`。
 - 用户的话是对智能体提议的确认（如「对，就这样」）时，摘录可以先引用紧挨着的上一句智能体发言作为上下文，写成以 `> 智能体：` 开头的一行，再另起一行写用户原话。证据仍算用户的陈述。
-- `file` 只接受项目根之内的文件；项目外的文件按 `command` 记录（如 `cat` 的输出）。
+- `file` 只接受项目根之内的文件；项目外的文件按 `command` 记录（如 `cat` 的输出）。「含 `..`」指某个路径分量恰为 `..`；`a..b.txt` 这样的文件名合法。
 - 如何核验见第 6 章。
 
 ### 指纹
@@ -48,7 +48,7 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 | `command` | `command`、`cwd` |
 
 - 归一化：Unicode NFC，连续空白折叠为一个空格，去掉首尾空白。核验时的子串匹配用同一归一化。
-- 不进指纹：行号提示、`fetched_at`、git commit、写入时间、Writer。
+- 不进指纹：行号提示、`fetched_at`、`command` 的 `exit_code`、git commit、写入时间、Writer。
 - 同一摘录出自不同文件，是两条证据。
 - 指纹是派生值，不写进日志，重放时在内存中算出（第 2 章）。具体哈希算法不在规格里规定。
 
@@ -127,13 +127,16 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
 
 ### 定位项目路径
 
-工具与命令接受可选参数 `project`（一个路径），只用来定位。未给出时依次取：MCP `roots/list` → 环境变量 `CLAUDE_PROJECT_DIR` → 当前工作目录。
+工具与命令接受可选参数 `project`（一个路径），只用来定位。未给出时依次取：MCP `roots/list` → 环境变量 `CLAUDE_PROJECT_DIR`（为空视为未设置）→ 当前工作目录。
+
+路径先解析为规范的绝对路径（跟随符号链接），`path:` 标识与项目根都用解析后的路径。路径不存在或不可用时报 `INVALID_ARGS`；哪些调用需要解析项目、解析失败是否使调用失败，见第 3 章各工具。
 
 ### 由路径推出项目标识
 
 1. 路径在 git 仓库内：项目根是仓库顶层目录。
-   - 有 `origin` remote：项目标识为归一化后的 remote URL：去掉协议、去掉用户名（`user@`）、把 scp 风格的 `:` 换成 `/`、去掉结尾的 `.git`。例如 `git@github.com:zibyn/almanac.git` 与 `https://github.com/zibyn/almanac` 都得到 `github.com/zibyn/almanac`。
+   - 有 `origin` remote：项目标识为归一化后的 remote URL：去掉协议、去掉用户名（`user@`）、把 scp 风格的 `:` 换成 `/`、去掉结尾的 `.git`。例如 `git@github.com:zibyn/almanac.git` 与 `https://github.com/zibyn/almanac` 都得到 `github.com/zibyn/almanac`。另外去掉结尾的 `/`；端口（如 `ssh://git@host:2222/a/b` 的 `:2222`）保留，大小写不变。
    - 没有 `origin` remote：项目标识为 `git-root:<根提交 hash>`。
+   - 既没有 `origin` 也还没有提交：按不在 git 内处理，项目标识为 `path:<仓库顶层目录>`，没有根提交，事务也没有 `git_commit`。
 2. 路径不在 git 仓库内：项目根即该路径，项目标识为 `path:<绝对路径>`。
 
 根提交：有多个根提交时，取 hash 字典序最小的那个。项目作用域的记忆总是同时记下 `root_commit`（项目在 git 内时）。
@@ -154,7 +157,7 @@ v0.1 共四种[来源类型（Source Type）](../../GLOSSARY.md)，不设「其�
   ```json
   "purged": { "at": "2026-10-20T08:00:00.000Z", "reason": "含 API token", "by": { "name": "human" } }
   ```
-  墓碑不含原文，也不含任何由原文派生的值（不留哈希，以免短内容被穷举确认）。被清除的证据不再有指纹。
+  墓碑以 `purged` 字段代替被替换的字段（`excerpt`、`text` 或撤回的 `reason`），原字段删去。墓碑不含原文，也不含任何由原文派生的值（不留哈希，以免短内容被穷举确认）。被清除的证据不再有指纹。
 - `by` 固定为 `{"name": "human"}`：清除只能由人在终端里执行（第 4 章）。
 - 清除**证据**时，`source` 缩为只剩 `{ "type": … }`，其余定位字段（命令行、URL、路径、会话等）一并抹去：定位本身也可能含敏感内容。
 - 清除**记忆**时，只替换 `text`；`scope`、`project`、`root_commit`、`epistemic`、`evidence`、`supersedes` 不是由正文派生的，原样保留，取代链与附证关系不断。针对它的 `retracted` 事件的 `reason` 也换成同一墓碑（撤回原因常复述正文），事件本身保留。

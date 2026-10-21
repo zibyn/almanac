@@ -74,7 +74,7 @@ fn build(
     let (tx, (out, checks)) = if inline.is_empty() {
         (None, (json!({ "evidence": [] }), vec![]))
     } else {
-        record::build(state, writer.clone(), project, inline, vec![])?
+        record::build(state, writer.clone(), Ok(project), inline, vec![])?
     };
     let mut inline_ids = out["evidence"].as_array().unwrap().iter();
 

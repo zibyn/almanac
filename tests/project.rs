@@ -253,3 +253,24 @@ fn project_memory_dedup_spans_the_alias_group() {
         "{e}"
     );
 }
+
+#[test]
+fn bad_project_path_fails_only_writes_that_need_the_project() {
+    let a = Almanac::new();
+    let gone = a.home.path().join("gone");
+    let args = |scope: &str| {
+        json!({
+            "project": s(&gone),
+            "evidence": [{"ref": "e", "excerpt": "用 tab", "source": {"type": "conversation"}}],
+            "memories": [{"text": format!("{scope} 记忆"), "scope": scope, "evidence": ["e"]}]
+        })
+    };
+    let r = a.tool("record", args("global")).ok();
+    assert!(get(&a, &r["memories"][0]["id"]).get("git_commit").is_none());
+    a.tool("record", args("project")).err("INVALID_ARGS");
+    a.tool(
+        "record",
+        json!({"project": s(&gone), "evidence": [{"excerpt": "x", "source": {"type": "file", "path": "README.md"}}]}),
+    )
+    .err("INVALID_ARGS");
+}

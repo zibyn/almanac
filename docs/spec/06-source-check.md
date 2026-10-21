@@ -35,8 +35,8 @@
 只在 `verify` 时进行，`search`、`get`、`review`、`context` 从不联网。
 
 1. 对 `url` 发一次 HTTP GET：跟随最多 5 次重定向，超时 10 秒，不带 cookie 与认证信息。
-2. 状态码非 2xx、DNS 失败、连接失败或超时：`unreachable`。
-3. 响应为 HTML 时，去掉 `<script>`、`<style>` 元素及其内容，去掉其余标签，解码 HTML 实体，得到文本；其他文本类型直接用响应体；非文本类型（图片、PDF 等）判 `changed`。
+2. 状态码非 2xx、DNS 失败、连接失败、超时、重定向超过 5 次或响应体超过 10 MB：`unreachable`。
+3. 响应体一律按 UTF-8 有损解码，不按 `charset` 转码。文本类型为 `text/*`、以 `json` 或 `xml` 结尾的类型，以及没有 `Content-Type` 的响应。响应为 HTML（`text/html`、`application/xhtml+xml`）时，去掉 `<script>`、`<style>` 元素及其内容与 HTML 注释，去掉其余标签（不补空格，块级元素两侧的文字可能连在一起），解码 HTML 实体，得到文本；其他文本类型直接用响应体；非文本类型（图片、PDF 等）判 `changed`。
 4. 按匹配规则判 `match` 或 `changed`。
 
 需要执行 JavaScript 才能渲染内容的页面会判为 `changed`；这是确定性核验的已知局限。
@@ -50,7 +50,7 @@
 | 时机 | 核验什么 | 联网 |
 |---|---|---|
 | 写入（`record`、`corroborate`） | 本次新给出的 `file` 证据；不符即拒绝写入（第 3 章），通过则记为 `match` | 否 |
-| `search`、`get` 返回前 | 惰性核验：结果中记忆当前引用的 `file` 证据 | 否 |
+| `search`、`get` 返回前 | 惰性核验：结果中记忆当前引用的 `file` 证据（`get` 直接取证据时不核验） | 否 |
 | `verify` | 所选记忆当前引用的全部证据；`include_web: false` 时跳过网页 | 是 |
 | `review`、`context` | 不核验，只读缓存 | 否 |
 
@@ -63,6 +63,7 @@
 - 按证据 id 保存最近一次结果：`result`、`at`（核验时间），`file` 证据另存 mtime 与大小。
 - 只保留最近一次，不留历史。
 - 文件格式由实现决定。
+- 尽力而为：写缓存不加锁，并发写入可能丢掉其中一方的更新，丢失只会导致下次重新核验。写缓存失败不使已成功的写入失败，只在 stderr 提示。
 - 清除（第 2 章）时整个 `cache/` 随之删除。
 
 ## 可能过期

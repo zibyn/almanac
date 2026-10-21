@@ -25,7 +25,7 @@ cargo install --git https://github.com/zibyn/almanac
 | Codex | `codex plugin marketplace add zibyn/almanac`，然后 `codex plugin add almanac@almanac` |
 | Pi | `pi install git:github.com/zibyn/almanac` |
 
-**Codex 用户还要信任两个 hook。** 装完后在 Codex 里运行 `/hooks`，信任 almanac 的 `SessionStart` 与 `Stop` hook。Codex 按插件内容信任 hook：插件更新后若注入或提醒不再出现，再到 `/hooks` 信任一次。没有信任时，只是少了会话开始注入或写入提醒，智能体照样能用 almanac。
+**Codex 用户还要信任两个 hook。** 装完后在 Codex 里运行 `/hooks`，信任 almanac 的 `SessionStart` 与 `Stop` hook。Codex 的信任绑定整个插件目录的内容哈希，所以**每次升级插件后 Codex 都会要求重新信任**：到 `/hooks` 再信任一次，否则注入与提醒不再出现。没有信任时，只是少了会话开始注入或写入提醒，智能体照样能用 almanac。
 
 ### 关闭写入提醒
 

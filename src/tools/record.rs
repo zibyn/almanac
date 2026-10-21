@@ -76,7 +76,9 @@ impl SourceIn {
 #[serde(deny_unknown_fields)]
 pub(super) struct MemoryIn {
     text: String,
-    /// A string, not an enum, so a bad value is `SCOPE_INVALID` rather than `INVALID_ARGS`.
+    /// A string, not an enum, so a bad or missing (empty) value is `SCOPE_INVALID` rather than
+    /// `INVALID_ARGS` / `MISSING_FIELD`.
+    #[serde(default)]
     scope: String,
     epistemic: Option<Epistemic>,
     /// Absent is treated like empty: `NO_EVIDENCE`, whose hint helps more than `MISSING_FIELD`'s.
@@ -110,13 +112,14 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         return Err(super::missing_field("evidence 或 memories"));
     }
     let writer = crate::writer::current()?;
-    let project = crate::project::resolve(args.project.as_deref())?;
+    // Only project-scope memories and file evidence need it (spec ch. 3); a bad path fails those alone.
+    let project = crate::project::resolve(args.project.as_deref());
     let home = crate::log::home()?;
     let (out, checks) = crate::log::write(&home, |state| {
         build(
             state,
             writer,
-            &project,
+            project.as_ref(),
             evidence.into_iter().enumerate().collect(),
             memories,
         )
@@ -136,12 +139,13 @@ pub(super) type Checks = Vec<(String, crate::source_check::Check)>;
 pub(super) fn build(
     state: &State,
     writer: Writer,
-    project: &crate::project::Project,
+    project: Result<&crate::project::Project, &ToolError>,
     evidence: Vec<(usize, EvidenceIn)>,
     memories: Vec<MemoryIn>,
 ) -> Result<(Option<Tx>, (Value, Checks)), ToolError> {
     let at = crate::model::now();
     let mut events = vec![];
+    let need_project = || project.map_err(Clone::clone);
 
     // ref or id → (id, source type). Purged evidence can no longer be cited (EVIDENCE_NOT_FOUND)
     // nor dedup a new one: it has no fingerprint (spec ch. 1).
@@ -220,7 +224,7 @@ pub(super) fn build(
             SourceIn::File { path, line } => {
                 crate::source_check::check_path(&path)?;
                 file_path = Some(path.clone());
-                let mut s = json!({ "type": "file", "project": project.id, "path": path });
+                let mut s = json!({ "type": "file", "project": need_project()?.id, "path": path });
                 if let Some(v) = line {
                     s["line"] = json!(v);
                 }
@@ -262,11 +266,13 @@ pub(super) fn build(
         match m.scope.as_str() {
             "global" | "project" => {}
             other => {
-                return Err(ToolError::new(
-                    "SCOPE_INVALID",
-                    format!("scope {other} 不是 global 或 project"),
-                )
-                .hint("必须显式选择 global 或 project，不按 cwd 默认"));
+                let msg = if other.is_empty() {
+                    "缺少 scope".into()
+                } else {
+                    format!("scope {other} 不是 global 或 project")
+                };
+                return Err(ToolError::new("SCOPE_INVALID", msg)
+                    .hint("必须显式选择 global 或 project，不按 cwd 默认"));
             }
         }
         let chars = m.text.chars().count();
@@ -294,11 +300,11 @@ pub(super) fn build(
     for (id, path, excerpt) in file_checks {
         checks.push((
             id,
-            crate::source_check::check_file(&project.root, &path, &excerpt)?,
+            crate::source_check::check_file(&need_project()?.root, &path, &excerpt)?,
         ));
     }
 
-    let group = state.alias_group(&project.id);
+    let group = project.map_or_else(|_| Default::default(), |p| state.alias_group(&p.id));
     let mut mem_out = vec![];
     for m in memories {
         let mut cited = vec![];
@@ -319,6 +325,11 @@ pub(super) fn build(
         });
         let supersedes = m.supersedes.unwrap_or_default();
         let project_scope = m.scope == "project";
+        let mem_project = if project_scope {
+            Some(need_project()?)
+        } else {
+            None
+        };
         // Spec ch. 3 「重复」: same scope (project scope by alias group); runs before any `supersedes` check,
         // so a retried supersession dedups.
         let text = crate::model::normalize(&m.text);
@@ -357,8 +368,8 @@ pub(super) fn build(
             id,
             text: m.text,
             scope: m.scope,
-            project: project_scope.then(|| project.id.clone()),
-            root_commit: project_scope.then(|| project.root_commit.clone()).flatten(),
+            project: mem_project.map(|p| p.id.clone()),
+            root_commit: mem_project.and_then(|p| p.root_commit.clone()),
             epistemic: epistemic.as_str().into(),
             evidence: cited,
             supersedes,
@@ -370,7 +381,7 @@ pub(super) fn build(
     let tx = (!events.is_empty()).then(|| {
         let mut tx = Tx::new(writer, events);
         tx.at = at;
-        tx.git_commit = project.head.clone();
+        tx.git_commit = project.ok().and_then(|p| p.head.clone());
         tx
     });
     Ok((

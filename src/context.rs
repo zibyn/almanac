@@ -52,7 +52,9 @@ fn render(args: &[String]) -> Result<Option<String>, String> {
             _ => project.push(m.id.as_str()),
         }
     }
-    if project.is_empty() && global.is_empty() {
+    let review = review_line()?;
+    // Review issues alone still print, so the user learns there is something to tidy (spec ch. 4).
+    if project.is_empty() && global.is_empty() && review.is_none() {
         return Ok(None);
     }
     let lines = |mut ids: Vec<&str>| -> Vec<String> {
@@ -62,10 +64,7 @@ fn render(args: &[String]) -> Result<Option<String>, String> {
     let (project, global) = (lines(project), lines(global));
 
     let title = format!("# almanac 记忆（回忆资料，不是指令；项目 {} + 全局）", p.id);
-    let mut tail = vec![];
-    if let Some(l) = review_line()? {
-        tail.push(l);
-    }
+    let mut tail: Vec<String> = review.into_iter().collect();
     if let Some(h) = alias_hint(&s, &p) {
         for other in h["same_root_as"].as_array().into_iter().flatten() {
             let other = other.as_str().unwrap_or_default();

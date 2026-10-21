@@ -85,6 +85,17 @@ fn scope_other_than_global_or_project_is_scope_invalid() {
 }
 
 #[test]
+fn missing_scope_is_scope_invalid() {
+    let a = Almanac::new();
+    let e = rejects(
+        &a,
+        json!({"evidence": [conv("e", "x")], "memories": [{"text": "t", "evidence": ["e"]}]}),
+        "SCOPE_INVALID",
+    );
+    assert!(e["hint"].as_str().unwrap().contains("显式"), "{e}");
+}
+
+#[test]
 fn memory_without_evidence_is_no_evidence() {
     let a = Almanac::new();
     for m in [mem("t", &[]), json!({"text": "t", "scope": "global"})] {

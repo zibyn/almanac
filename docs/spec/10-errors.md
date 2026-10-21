@@ -26,19 +26,19 @@
 
 | code | 条件 | hint | 来源 |
 |---|---|---|---|
-| `INVALID_ARGS` | 参数 JSON 不合法、有未知字段、类型或枚举值不对且没有更具体的码；`project alias` 两个标识相同或为空 | — | 3、4 |
-| `MISSING_FIELD` | 缺必填字段；`record` 的 `evidence` 与 `memories` 都没给；`retract` 的 `reason` 为空 | 说明缺哪个字段 | 3 |
+| `INVALID_ARGS` | 参数 JSON 不合法、有未知字段、类型或枚举值不对且没有更具体的码；`get` 的 `ids` 为空；项目路径不存在或不可用；MCP 调用未知工具；`project alias` 两个标识相同或为空 | — | 1、3、4、9 |
+| `MISSING_FIELD` | 缺必填字段（不含记忆的 `scope`，见 `SCOPE_INVALID`；不含记忆的 `evidence`，见 `NO_EVIDENCE`）；`record` 的 `evidence` 与 `memories` 都没给或都为空；`retract` 的 `reason`、`purge` 的 `--reason` 为空 | 说明缺哪个字段 | 3、4 |
 | `TOO_MANY_IDS` | `get` 的 `ids` 超过 20 个 | 分批取 | 3 |
 | `EXCERPT_TOO_LONG` | 摘录超过 4096 字节 | 只截取能支撑记忆的那一小段 | 3 |
 | `FILE_OUTSIDE_PROJECT` | `file` 来源的 `path` 以 `/` 开头或含 `..` | 项目外的文件按 `command` 记录（如 `cat` 的输出） | 3 |
 | `FILE_NOT_FOUND` | 写入的 `file` 证据在项目根下不存在或不可读 | 检查 `path` 是否相对项目根 | 3、6 |
 | `EXCERPT_NOT_IN_FILE` | 写入的 `file` 证据的摘录不在当前文件中 | 重新读取文件，逐字复制摘录 | 3、6 |
 | `TEXT_TOO_LONG` | 记忆正文超过 500 字符 | 一条记忆只写一个论断，拆成多条 | 3 |
-| `SCOPE_INVALID` | `scope` 不是 `global` 或 `project` | 必须显式选择，不按 cwd 默认 | 3 |
-| `NO_EVIDENCE` | 记忆或附证的 `evidence` 为空 | 用户说「记住 X」时，这句话本身就是证据 | 3 |
-| `EVIDENCE_NOT_FOUND` | 引用的 `ref` 未定义，或证据 id 不存在、已被清除 | — | 3 |
-| `MEMORY_NOT_FOUND` | 引用的记忆 id 不存在 | — | 3 |
-| `NOT_ACTIVE` | 取代、撤回的对象既不是生效也不是无据；附证的对象不是生效 | 被取代时给出它的生效后继，提示沿取代链取代最新的 | 1、3 |
+| `SCOPE_INVALID` | 记忆缺 `scope`，或 `scope` 不是 `global` 或 `project` | 必须显式选择，不按 cwd 默认 | 3 |
+| `NO_EVIDENCE` | 记忆或附证的 `evidence` 为空，或记忆缺 `evidence` | 用户说「记住 X」时，这句话本身就是证据 | 3 |
+| `EVIDENCE_NOT_FOUND` | 引用的 `ref` 未定义，或证据 id 不存在、已被清除；`purge` 的 `ev_…` id 不存在 | — | 3、4 |
+| `MEMORY_NOT_FOUND` | 引用的记忆 id 不存在；`purge` 的 id 不存在且不以 `ev_` 开头 | — | 3、4 |
+| `NOT_ACTIVE` | 取代、撤回的对象既不是生效也不是无据；附证的对象不是生效 | 被取代时沿取代链（传递）列出它的全部生效后继，提示对最新的操作；没有生效后继时列表为空。其他状态不给 hint | 1、3 |
 | `SECRET_DETECTED` | 写入的文本命中密钥规则；`message` 给规则名、字段路径与偏移，不回显命中的值 | 对话、命令证据与正文把密钥换成 `<redacted>` 重试；`file` 证据换不含密钥的摘录；密钥本身是要记的内容时不要记 | 3 |
 | `DUPLICATE_TEXT` | 同作用域已有正文相同的生效记忆，但本次证据或取代对象不同 | 改用 `corroborate` 给它附证 | 3 |
 | `NO_WRITER` | 推断不出 Writer（写操作） | 宿主嵌套时列出检测到的宿主；两种情况都提示在命令前加 `ALMANAC_WRITER=<自己的名字>` 重试（人用 `human`） | 9 |
@@ -49,6 +49,7 @@
 |---|---|---|---|
 | `STORE_BUSY` | 10 秒内拿不到写锁 | 稍后重试 | 2 |
 | `STORE_NEWER` | 日志中有比本二进制新的格式版本，记忆库只读：写入、`purge`、`project alias` 被拒绝，读照常 | 升级 almanac | 2 |
+| `STORE_IO` | 记忆库目录无法确定（`ALMANAC_HOME`、`XDG_DATA_HOME`、`HOME` 都未设置），或读写记忆库失败 | 前者：设置 `ALMANAC_HOME`；后者：检查记忆库目录权限 | 2 |
 
 ### 清除
 

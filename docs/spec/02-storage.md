@@ -4,7 +4,9 @@
 
 ## 目录布局
 
-记忆库目录默认为 `$XDG_DATA_HOME/almanac/`（未设 `XDG_DATA_HOME` 时为 `~/.local/share/almanac/`），可用环境变量 `ALMANAC_HOME` 覆盖。
+记忆库目录默认为 `$XDG_DATA_HOME/almanac/`（未设 `XDG_DATA_HOME` 时为 `$HOME/.local/share/almanac/`），可用环境变量 `ALMANAC_HOME` 覆盖。三个变量为空视为未设置；都未设置时无法确定记忆库，报 `STORE_IO`（hint：设置 `ALMANAC_HOME`）。
+
+读写记忆库（日志、锁文件、目录）的 I/O 失败一律报 `STORE_IO`（hint：检查记忆库目录权限）。
 
 ```
 almanac/
@@ -21,7 +23,7 @@ almanac/
 
 ### 存放位置的约束
 
-- 记忆库目录**必须在本地磁盘**。不支持 NFS、SMB 和同步盘（Dropbox、iCloud Drive、OneDrive 等）：`flock` 在其上不可靠，同步盘还会产生冲突副本。启动时检测到常见同步盘路径就在 stderr 打警告。v0.1 不支持多台机器共享一个记忆库。
+- 记忆库目录**必须在本地磁盘**。不支持 NFS、SMB 和同步盘（Dropbox、iCloud Drive、OneDrive 等）：`flock` 在其上不可靠，同步盘还会产生冲突副本。工具的每次 CLI 调用、`almanac mcp` 启动时与 `purge` 中，记忆库路径中有目录名以 `Dropbox`、`OneDrive`、`Google Drive`、`GoogleDrive`、`Nextcloud`、`ownCloud` 开头，或恰为 `iCloud Drive`、`Mobile Documents`、`CloudStorage`，就在 stderr 打一行警告。NFS、SMB 挂载不检测。v0.1 不支持多台机器共享一个记忆库。
 
 ## 日志格式
 
@@ -57,12 +59,14 @@ almanac/
 ### 追加与崩溃恢复
 
 - 一个事务用一次 `write()` 写入，以 `\n` 结尾；`fsync` 之后工具调用才返回成功。
-- 写入方持锁打开日志时，若最后一行没有以 `\n` 结尾或不是合法 JSON，视为崩溃造成的残缺写入：截掉这一行，并记进诊断日志（stderr）。
+- 写入方持锁打开日志时，若最后一行没有以 `\n` 结尾或不是合法 JSON，视为崩溃造成的残缺写入：截掉这一行，并在 stderr 打一行提示。提示只给截掉的字节数，不回显内容（残缺行可能含密钥，而 hook 的 stderr 可能进入宿主的输出）。
+- 先判断 `STORE_NEWER`（见「版本」）再截残缺行：只读的记忆库不做任何修改。
+- 日志中间的完整行不是合法 JSON 或读不出事务时，跳过这一行并在 stderr 警告（给出行号），其余行照常重放，写入照常进行。
 
 ### 版本
 
 - 新版二进制能读所有旧版本的行。
-- 旧版二进制遇到 `v` 比自己支持的新的行时，照常尽力读取（忽略不认识的事件类型与字段），但整个记忆库只读：写工具、`purge`、`project alias` 报 `STORE_NEWER`；读工具、`context`、`export` 照常。
+- 旧版二进制遇到 `v` 比自己支持的新的行（v0.1 即 `v > 1`）时，照常尽力读取（忽略不认识的事件类型与字段；读不出的新版行静默跳过），但整个记忆库只读：写工具、`purge`、`project alias` 报 `STORE_NEWER`；读工具、`context`、`export` 照常。
 - **不做日志迁移**。格式演进只能新增事件类型或可选字段；读端忽略不认识的字段。
 
 ### 不做快照、不做压缩
@@ -102,3 +106,5 @@ almanac/
 
 - 不做自动备份。CLI 在完成后提醒：外部备份里的副本需要人自己处理。
 - 事务行的其他字段与事件顺序保持不变，id 不变。
+- 没有改动的行逐字节保留；有改动的行重新序列化，不保证与原行字节级相同（key 顺序可能变化），语义不变。
+- 日志末尾的残缺行（见「追加与崩溃恢复」）在重写时一并截掉。
