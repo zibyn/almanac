@@ -18,6 +18,9 @@ pub fn run(args: Vec<String>) -> i32 {
     if cmd == "context" {
         return crate::context::run(rest);
     }
+    if cmd == "export" {
+        return crate::export::run(rest);
+    }
     if cmd == "remind" {
         return crate::remind::run();
     }

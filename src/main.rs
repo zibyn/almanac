@@ -3,6 +3,7 @@ mod analyzer;
 mod cli;
 mod context;
 mod error;
+mod export;
 mod index;
 mod log;
 mod model;
