@@ -2,6 +2,7 @@ mod cli;
 mod error;
 mod log;
 mod model;
+mod remind;
 mod state;
 mod tools;
 mod writer;
