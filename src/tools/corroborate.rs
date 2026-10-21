@@ -20,14 +20,14 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
     let project = crate::project::resolve(args.project.as_deref())?;
     // Inline evidence goes through `record`'s checks and dedup; `ref` means nothing here.
-    let mut inline: Vec<EvidenceIn> = vec![];
-    for e in &args.evidence {
+    let mut inline: Vec<(usize, EvidenceIn)> = vec![];
+    for (i, e) in args.evidence.iter().enumerate() {
         match e {
             Value::String(_) => {}
             Value::Object(o) => {
                 let mut o = o.clone();
                 o.remove("ref");
-                inline.push(super::parse(&Value::Object(o).to_string())?);
+                inline.push((i, super::parse(&Value::Object(o).to_string())?));
             }
             _ => {
                 return Err(ToolError::invalid_args(
@@ -50,7 +50,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
 fn build(
     state: &State,
     args: &Args,
-    inline: Vec<EvidenceIn>,
+    inline: Vec<(usize, EvidenceIn)>,
     writer: crate::model::Writer,
     project: &crate::project::Project,
 ) -> Result<(Option<Tx>, (Value, record::Checks)), ToolError> {

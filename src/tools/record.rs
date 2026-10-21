@@ -47,6 +47,31 @@ enum SourceIn {
     },
 }
 
+impl SourceIn {
+    /// The string fields the secret check scans: all but `type` and `fetched_at` (spec ch. 3).
+    fn strings(&self) -> Vec<(&'static str, &str)> {
+        let fields = match self {
+            SourceIn::Conversation {
+                session,
+                transcript_path,
+                ..
+            } => vec![
+                ("session", session.as_deref()),
+                ("transcript_path", transcript_path.as_deref()),
+            ],
+            SourceIn::Web { url, .. } => vec![("url", Some(url.as_str()))],
+            SourceIn::Command { command, cwd, .. } => {
+                vec![("command", Some(command.as_str())), ("cwd", cwd.as_deref())]
+            }
+            SourceIn::File { path, .. } => vec![("path", Some(path.as_str()))],
+        };
+        fields
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|v| (k, v)))
+            .collect()
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct MemoryIn {
@@ -88,7 +113,13 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     let project = crate::project::resolve(args.project.as_deref())?;
     let home = crate::log::home();
     let (out, checks) = crate::log::write(&home, |state| {
-        build(state, writer, &project, evidence, memories)
+        build(
+            state,
+            writer,
+            &project,
+            evidence.into_iter().enumerate().collect(),
+            memories,
+        )
     })?;
     // The cache is a deletable local observation; failing to write it must not fail a committed write.
     if let Err(e) = crate::source_check::store(&home, checks) {
@@ -100,12 +131,13 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
 pub(super) type Checks = Vec<(String, crate::source_check::Check)>;
 
 /// Runs under the write lock against freshly replayed state (spec ch. 2). `corroborate` reuses
-/// it for inline evidence.
+/// it for inline evidence. Each evidence comes with its index in the caller's `evidence` list,
+/// for error paths.
 pub(super) fn build(
     state: &State,
     writer: Writer,
     project: &crate::project::Project,
-    evidence: Vec<EvidenceIn>,
+    evidence: Vec<(usize, EvidenceIn)>,
     memories: Vec<MemoryIn>,
 ) -> Result<(Option<Tx>, (Value, Checks)), ToolError> {
     let at = crate::model::now();
@@ -127,7 +159,7 @@ pub(super) fn build(
     let mut ev_out = vec![];
     // New file evidence to compare against disk once structural checks pass: (id, path, excerpt).
     let mut file_checks = vec![];
-    for e in evidence {
+    for (i, e) in evidence {
         if e.excerpt.len() > 4096 {
             return Err(ToolError::new(
                 "EXCERPT_TOO_LONG",
@@ -135,6 +167,14 @@ pub(super) fn build(
             )
             .hint("只截取能支撑记忆的那一小段"));
         }
+        crate::secrets::check(
+            std::iter::once((format!("evidence[{i}].excerpt"), e.excerpt.as_str())).chain(
+                e.source
+                    .strings()
+                    .into_iter()
+                    .map(|(k, v)| (format!("evidence[{i}].source.{k}"), v)),
+            ),
+        )?;
         if let Some(r) = &e.local_ref
             && !refs.insert(r.clone())
         {
@@ -218,7 +258,8 @@ pub(super) fn build(
     }
 
     // Structural checks on memories, before the file comparison and dedup (spec ch. 3).
-    for m in &memories {
+    for (i, m) in memories.iter().enumerate() {
+        crate::secrets::check([(format!("memories[{i}].text"), m.text.as_str())])?;
         match m.scope.as_str() {
             "global" | "project" => {}
             other => {
