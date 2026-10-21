@@ -143,7 +143,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
 
 /// Other project identities in the store with the current project's root commit and not yet
 /// in its alias group (spec ch. 1 「项目别名」).
-fn alias_hint(s: &State, p: &crate::project::Project) -> Option<Value> {
+pub(crate) fn alias_hint(s: &State, p: &crate::project::Project) -> Option<Value> {
     let root = p.root_commit.as_ref()?;
     let group = s.alias_group(&p.id);
     let mut same: Vec<&str> = s
