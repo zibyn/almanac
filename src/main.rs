@@ -1,11 +1,14 @@
 mod alias;
+mod analyzer;
 mod cli;
 mod error;
+mod index;
 mod log;
 mod model;
 mod project;
 mod purge;
 mod remind;
+mod secrets;
 mod source_check;
 mod state;
 mod tools;
