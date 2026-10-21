@@ -1,9 +1,10 @@
 //! `almanac context` (spec ch. 4): the memories injected at session start, as Markdown.
 //! Read-only and offline: stale flags come from the check cache alone. Never fails: exit 0 always.
 
+use crate::model::{day, epistemic_label};
 use crate::source_check as sc;
 use crate::state::State;
-use crate::tools::search::{alias_hint, last_at};
+use crate::tools::search::{Scope, alias_hint, in_scope, scope_group};
 use std::cmp::Reverse;
 
 const DEFAULT_MAX_CHARS: usize = 6000;
@@ -33,30 +34,29 @@ fn render(args: &[String]) -> Result<Option<String>, String> {
         return Err(format!("记忆库 {} 不存在", home.display()));
     }
     let p = crate::project::resolve(None).map_err(|e| e.message)?;
-    let txs = crate::log::replay(&home).map_err(|e| format!("无法读取日志：{e}"))?;
-    let s = State::replay(&txs);
-    let group = s.alias_group(&p.id);
+    let s = crate::log::load(&home).map_err(|e| e.message)?;
+    let group = scope_group(&s, Some(&p));
     let cache = sc::load_cache(&home);
 
     let mut project = vec![];
     let mut global = vec![];
     for (m, _) in s.memories.values() {
-        if s.status(&m.id) != "active" || web_sourced(&s, &m.id) {
+        if s.status(&m.id) != "active"
+            || s.web_sourced(&m.id)
+            || !in_scope(m, Scope::Any, false, &group)
+        {
             continue;
         }
         match m.scope.as_str() {
             "global" => global.push(m.id.as_str()),
-            _ if m.project.as_ref().is_some_and(|q| group.contains(q)) => {
-                project.push(m.id.as_str())
-            }
-            _ => {}
+            _ => project.push(m.id.as_str()),
         }
     }
     if project.is_empty() && global.is_empty() {
         return Ok(None);
     }
     let lines = |mut ids: Vec<&str>| -> Vec<String> {
-        ids.sort_by_key(|id| Reverse((last_at(&s, id), *id)));
+        ids.sort_by_key(|id| Reverse((s.last_at(id), *id)));
         ids.into_iter().map(|id| line(&s, &cache, id)).collect()
     };
     let (project, global) = (lines(project), lines(global));
@@ -118,25 +118,10 @@ fn fit(heading: &str, items: &[String], budget: usize) -> Option<String> {
     })
 }
 
-/// Spec ch. 1 「派生关系」: cites web evidence and no conversation evidence.
-fn web_sourced(s: &State, id: &str) -> bool {
-    let types: Vec<&str> = s
-        .current_evidence(id)
-        .iter()
-        .filter_map(|e| s.evidence.get(e)?.0.source["type"].as_str())
-        .collect();
-    types.contains(&"web") && !types.contains(&"conversation")
-}
-
 fn line(s: &State, cache: &sc::Cache, id: &str) -> String {
     let m = &s.memories[id].0;
-    let epistemic = match m.epistemic.as_str() {
-        "observed" => "亲见",
-        "user_stated" => "用户陈述",
-        "inferred" => "推断",
-        other => other,
-    };
-    let date = last_at(s, id).get(..10).unwrap_or_default();
+    let epistemic = epistemic_label(&m.epistemic);
+    let date = day(s.last_at(id));
     let stale = if sc::stale(s, cache, id).is_null() {
         ""
     } else {

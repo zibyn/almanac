@@ -78,7 +78,7 @@ fn memory(s: &State, cache: &Cache, id: &str) -> Option<Value> {
         }),
         "stale": sc::stale(s, cache, id),
     });
-    super::tombstone(&mut v, "text", &m.purged);
+    super::show_purged(&mut v, "text", &m.purged);
     if let Some(p) = &m.project {
         v["project"] = json!(p);
     }
@@ -99,7 +99,7 @@ fn evidence(s: &State, cache: &Cache, id: &str, with_cited_by: bool) -> Option<V
         "recorded": recorded,
         "check": cache.get(id).map(|c| json!({ "result": c.result, "at": c.at })),
     });
-    super::tombstone(&mut v, "excerpt", &e.purged);
+    super::show_purged(&mut v, "excerpt", &e.purged);
     if with_cited_by {
         v["cited_by"] = json!(s.cited_by.get(id).cloned().unwrap_or_default());
     }

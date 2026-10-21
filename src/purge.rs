@@ -37,7 +37,7 @@ fn purge(args: &[String]) -> Result<(), ToolError> {
     let home = log::home()?;
     log::warn_if_synced(&home);
     log::ensure_writable(&home)?;
-    let state = load(&home)?;
+    let state = log::load(&home)?;
     check_purgeable(&state, id)?;
 
     // Steps 1–3 (spec ch. 4): show, ask about each related object, confirm. No lock while a human types.
@@ -62,12 +62,12 @@ fn purge(args: &[String]) -> Result<(), ToolError> {
     // Step 4 (spec ch. 2 「清除步骤」).
     let _lock = log::lock(&home)?;
     log::ensure_writable(&home)?;
-    let state = load(&home)?;
+    let state = log::load(&home)?;
     for c in &chosen {
         check_purgeable(&state, c)?;
     }
     let tomb = json!({ "at": crate::model::now(), "reason": reason, "by": { "name": "human" } });
-    log::rewrite(&home, |ev| tombstone(ev, &chosen, &tomb))?;
+    log::rewrite(&home, |ev| tombstone_event(ev, &chosen, &tomb))?;
     match std::fs::remove_dir_all(home.join("cache")) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(log::io_error(e)),
         _ => {}
@@ -77,11 +77,6 @@ fn purge(args: &[String]) -> Result<(), ToolError> {
         chosen.len()
     );
     Ok(())
-}
-
-fn load(home: &std::path::Path) -> Result<State, ToolError> {
-    let txs = log::replay(home).map_err(log::io_error)?;
-    Ok(State::replay(&txs))
 }
 
 fn check_purgeable(s: &State, id: &str) -> Result<(), ToolError> {
@@ -95,10 +90,7 @@ fn check_purgeable(s: &State, id: &str) -> Result<(), ToolError> {
             format!("证据 {id} 不存在"),
         ))
     } else {
-        Err(ToolError::new(
-            "MEMORY_NOT_FOUND",
-            format!("记忆 {id} 不存在"),
-        ))
+        crate::tools::check_exists(s, id)
     }
 }
 
@@ -132,7 +124,7 @@ fn describe(s: &State, id: &str) -> String {
 }
 
 /// Spec ch. 1 「清除与墓碑」: replaces the text-bearing fields of the chosen objects' events.
-fn tombstone(ev: &mut Value, chosen: &[String], tomb: &Value) -> bool {
+fn tombstone_event(ev: &mut Value, chosen: &[String], tomb: &Value) -> bool {
     let target = |k: &str| {
         ev[k]
             .as_str()

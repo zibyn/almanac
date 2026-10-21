@@ -71,6 +71,11 @@ pub fn replay(home: &Path) -> std::io::Result<Vec<Tx>> {
     Ok(parse(complete_lines(&raw)).txs)
 }
 
+/// Replays the store's log into derived state.
+pub fn load(home: &Path) -> Result<State, ToolError> {
+    Ok(State::replay(&replay(home).map_err(io_error)?))
+}
+
 /// `STORE_NEWER` if the log holds a line from a newer format version: the store is then
 /// read-only (spec ch. 2 「版本」). `write` checks this itself; purge calls it after `lock`.
 pub fn ensure_writable(home: &Path) -> Result<(), ToolError> {

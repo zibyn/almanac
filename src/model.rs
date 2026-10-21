@@ -150,3 +150,29 @@ pub fn new_id(prefix: &str) -> String {
 pub fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
+
+/// The `YYYY-MM-DD` part of a timestamp from `now`; anything shorter is returned whole.
+pub fn day(at: &str) -> &str {
+    at.get(..10).unwrap_or(at)
+}
+
+/// Human label of an epistemic value, for the Markdown views; unknown values pass through.
+pub fn epistemic_label(e: &str) -> &str {
+    match e {
+        "observed" => "亲见",
+        "user_stated" => "用户陈述",
+        "inferred" => "推断",
+        other => other,
+    }
+}
+
+/// Human label of a source type, for the Markdown views; unknown types pass through.
+pub fn source_type_label(t: &str) -> &str {
+    match t {
+        "conversation" => "对话",
+        "file" => "文件",
+        "web" => "网页",
+        "command" => "命令输出",
+        other => other,
+    }
+}

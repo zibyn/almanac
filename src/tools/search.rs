@@ -14,7 +14,7 @@ const MAX_LIMIT: usize = 50;
 
 #[derive(Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub(super) enum Scope {
+pub(crate) enum Scope {
     Global,
     Project,
     Any,
@@ -116,19 +116,14 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     let all = args.all.unwrap_or(false);
     // The current project filters only project-scope memories limited to its alias group;
     // otherwise it is needed just for `alias_hint`, so failing to resolve it is not an error.
-    let filters_by_project = kind == Kind::Memory && scope != Scope::Global && !all;
-    let current = match crate::project::resolve(args.project.as_deref()) {
-        Ok(p) => Some(p),
-        Err(e) if filters_by_project => return Err(e),
-        Err(_) => None,
-    };
+    let current = current_project(
+        args.project.as_deref(),
+        kind == Kind::Memory && scope.needs_project(all),
+    )?;
     let s = super::load()?;
     let hits = match kind {
         Kind::Memory => {
-            let group = match &current {
-                Some(p) if filters_by_project => s.alias_group(&p.id),
-                _ => Default::default(),
-            };
+            let group = scope_group(&s, current.as_ref());
             let here = sc::here(&s, current.as_ref());
             memory_hits(
                 &crate::log::home()?,
@@ -198,7 +193,7 @@ fn memory_hits(
         .map(|(m, _)| m.id.as_str())
         .collect();
     // Newest first, then id descending: the order without a query and the tie-break with one.
-    candidates.sort_by_key(|id| Reverse((last_at(s, id), *id)));
+    candidates.sort_by_key(|id| Reverse((s.last_at(id), *id)));
     let ranked = rank(
         &candidates,
         |id| &s.memories[id].0.text,
@@ -223,9 +218,33 @@ fn memory_hits(
         .collect()
 }
 
-/// The scope filter shared by `search` and `verify` (spec ch. 3 「作用域过滤」); `group` is the
-/// current project's alias group, unused when `all`.
-pub(super) fn in_scope(m: &Memory, scope: Scope, all: bool, group: &HashSet<String>) -> bool {
+impl Scope {
+    /// Whether the scope filter reaches project memories of the current project only.
+    pub(super) fn needs_project(self, all: bool) -> bool {
+        self != Scope::Global && !all
+    }
+}
+
+/// The current project; failing to resolve it is an error only when `needed`, else `None`.
+pub(super) fn current_project(
+    project: Option<&str>,
+    needed: bool,
+) -> Result<Option<crate::project::Project>, ToolError> {
+    match crate::project::resolve(project) {
+        Ok(p) => Ok(Some(p)),
+        Err(e) if needed => Err(e),
+        Err(_) => Ok(None),
+    }
+}
+
+/// The alias group `in_scope` matches project memories against: the current project's, or empty.
+pub(crate) fn scope_group(s: &State, current: Option<&crate::project::Project>) -> HashSet<String> {
+    current.map(|p| s.alias_group(&p.id)).unwrap_or_default()
+}
+
+/// The scope filter shared by `search`, `verify`, `review` and `context` (spec ch. 3 「作用域过滤」);
+/// `group` is the current project's alias group, unused when `all`.
+pub(crate) fn in_scope(m: &Memory, scope: Scope, all: bool, group: &HashSet<String>) -> bool {
     match m.scope.as_str() {
         "global" => scope != Scope::Project,
         _ => {
@@ -269,7 +288,7 @@ fn evidence_hits(s: &State, args: &Args, limit: usize) -> Vec<Value> {
                 "score": score,
                 "matched_terms": matched,
             });
-            super::tombstone(&mut v, "excerpt", &e.purged);
+            super::show_purged(&mut v, "excerpt", &e.purged);
             v
         })
         .collect()
@@ -295,14 +314,6 @@ fn rank<'a>(
     hits
 }
 
-/// Latest record or corroboration time of a memory.
-pub(crate) fn last_at<'a>(s: &'a State, id: &str) -> &'a str {
-    s.corroborations
-        .get(id)
-        .and_then(|c| c.last())
-        .map_or(&s.memories[id].1.at, |(_, r)| &r.at)
-}
-
 fn memory_hit(s: &State, cache: &sc::Cache, id: &str, score: f64, matched: Vec<String>) -> Value {
     let (m, recorded) = &s.memories[id];
     let evidence = s.current_evidence(id);
@@ -322,14 +333,14 @@ fn memory_hit(s: &State, cache: &sc::Cache, id: &str, score: f64, matched: Vec<S
         "status": s.status(id),
         "epistemic": m.epistemic,
         "writer": recorded.writer.name,
-        "last_at": last_at(s, id),
+        "last_at": s.last_at(id),
         "evidence_count": evidence.len(),
         "source_types": source_types,
         "stale": sc::stale(s, cache, id),
         "score": score,
         "matched_terms": matched,
     });
-    super::tombstone(&mut v, "text", &m.purged);
+    super::show_purged(&mut v, "text", &m.purged);
     if let Some(p) = &m.project {
         v["project"] = json!(p);
     }

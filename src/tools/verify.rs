@@ -1,6 +1,6 @@
 //! `verify`: explicit source check of the selected memories' current evidence (spec ch. 3, ch. 6).
 
-use super::search::{Scope, in_scope};
+use super::search::{Scope, current_project, in_scope, scope_group};
 use crate::error::ToolError;
 use crate::source_check as sc;
 use serde::Deserialize;
@@ -20,9 +20,10 @@ pub struct Args {
 pub fn run(args: Args) -> Result<Value, ToolError> {
     let s = super::load()?;
     let scope = args.scope.unwrap_or(Scope::Any);
-    let cur = crate::project::resolve(args.project.as_deref());
-    let needs_project = args.ids.is_none() && scope != Scope::Global && !args.all;
-    let cur = if needs_project { Some(cur?) } else { cur.ok() };
+    let cur = current_project(
+        args.project.as_deref(),
+        args.ids.is_none() && scope.needs_project(args.all),
+    )?;
     let memories: Vec<String> = match args.ids {
         Some(ids) => {
             for id in &ids {
@@ -31,10 +32,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
             ids
         }
         None => {
-            let group = cur
-                .as_ref()
-                .map(|p| s.alias_group(&p.id))
-                .unwrap_or_default();
+            let group = scope_group(&s, cur.as_ref());
             let mut ids: Vec<String> = s
                 .memories
                 .values()

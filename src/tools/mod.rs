@@ -65,14 +65,19 @@ fn missing_field(field: &str) -> ToolError {
 
 /// Spec ch. 1: only `active` or `unsupported` memories can be superseded or retracted.
 fn check_replaceable(s: &crate::state::State, id: &str) -> Result<(), ToolError> {
+    check_status(s, id, &["active", "unsupported"])
+}
+
+/// `MEMORY_NOT_FOUND` unless `id` exists, then `NOT_ACTIVE` unless its status is in `allowed`.
+fn check_status(s: &crate::state::State, id: &str, allowed: &[&str]) -> Result<(), ToolError> {
     check_exists(s, id)?;
     match s.status(id) {
-        "active" | "unsupported" => Ok(()),
+        st if allowed.contains(&st) => Ok(()),
         status => Err(not_active(s, id, status)),
     }
 }
 
-fn check_exists(s: &crate::state::State, id: &str) -> Result<(), ToolError> {
+pub(crate) fn check_exists(s: &crate::state::State, id: &str) -> Result<(), ToolError> {
     if s.memories.contains_key(id) {
         Ok(())
     } else {
@@ -98,7 +103,7 @@ fn not_active(s: &crate::state::State, id: &str, status: &str) -> ToolError {
 }
 
 /// Spec ch. 3: a purged object carries `purged` in place of its text field (`get` and `search`).
-fn tombstone(v: &mut Value, field: &str, purged: &Option<Value>) {
+fn show_purged(v: &mut Value, field: &str, purged: &Option<Value>) {
     if let Some(t) = purged {
         let o = v.as_object_mut().unwrap();
         o.remove(field);
@@ -108,6 +113,5 @@ fn tombstone(v: &mut Value, field: &str, purged: &Option<Value>) {
 
 /// Replays the store's log into derived state.
 fn load() -> Result<crate::state::State, ToolError> {
-    let txs = crate::log::replay(&crate::log::home()?).map_err(crate::log::io_error)?;
-    Ok(crate::state::State::replay(&txs))
+    crate::log::load(&crate::log::home()?)
 }

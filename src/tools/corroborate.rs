@@ -55,11 +55,7 @@ fn build(
     project: &crate::project::Project,
 ) -> Result<(Option<Tx>, (Value, record::Checks)), ToolError> {
     let memory = &args.memory;
-    super::check_exists(state, memory)?;
-    match state.status(memory) {
-        "active" => {}
-        status => return Err(super::not_active(state, memory, status)),
-    }
+    super::check_status(state, memory, &["active"])?;
     if args.evidence.is_empty() {
         return Err(ToolError::new("NO_EVIDENCE", "附证的 evidence 为空")
             .hint("至少给一条已有证据 id 或内联证据"));

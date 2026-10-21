@@ -1,7 +1,7 @@
 //! `review`: lists stale and unsupported memories (spec ch. 3 「review」, ch. 7).
 //! Read-only and offline: stale flags come from the check cache alone.
 
-use super::search::{Scope, in_scope};
+use super::search::{Scope, current_project, in_scope, scope_group};
 use crate::error::ToolError;
 use crate::source_check as sc;
 use serde::Deserialize;
@@ -19,11 +19,13 @@ pub struct Args {
 pub fn run(args: Args) -> Result<Value, ToolError> {
     let scope = args.scope.unwrap_or(Scope::Any);
     let s = super::load()?;
-    let group = if scope != Scope::Global && !args.all {
-        s.alias_group(&crate::project::resolve(args.project.as_deref())?.id)
+    let needed = scope.needs_project(args.all);
+    let cur = if needed {
+        current_project(args.project.as_deref(), needed)?
     } else {
-        Default::default()
+        None
     };
+    let group = scope_group(&s, cur.as_ref());
     let cache = sc::load_cache(&crate::log::home()?);
     let mut ids: Vec<&String> = s
         .memories

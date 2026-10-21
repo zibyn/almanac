@@ -26,7 +26,7 @@ pub fn similar(
         .filter_map(|(m, _)| Some((m, score(&new, &tokens(&m.text))?)))
         .collect();
     // Best first; ties by latest record or corroboration time, then by id, both descending.
-    let last_at = |id: &str| crate::tools::search::last_at(state, id);
+    let last_at = |id: &str| state.last_at(id);
     hits.sort_by(|(a, x), (b, y)| {
         y.total_cmp(x)
             .then_with(|| last_at(&b.id).cmp(last_at(&a.id)))

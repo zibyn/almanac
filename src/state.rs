@@ -146,6 +146,24 @@ impl State {
             .collect()
     }
 
+    /// Latest record or corroboration time of a memory.
+    pub fn last_at(&self, memory: &str) -> &str {
+        self.corroborations
+            .get(memory)
+            .and_then(|c| c.last())
+            .map_or(&self.memories[memory].1.at, |(_, r)| &r.at)
+    }
+
+    /// Spec ch. 1 「派生关系」: cites `web` evidence and no `conversation` evidence.
+    pub fn web_sourced(&self, memory: &str) -> bool {
+        let types: Vec<&str> = self
+            .current_evidence(memory)
+            .iter()
+            .filter_map(|e| self.evidence.get(e)?.0.source["type"].as_str())
+            .collect();
+        types.contains(&"web") && !types.contains(&"conversation")
+    }
+
     pub fn cites(&self, memory: &str, evidence: &str) -> bool {
         self.cited_by
             .get(evidence)
