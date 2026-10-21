@@ -17,7 +17,7 @@
 | 4 | [仅 CLI 命令](04-cli.md) | 只在 CLI 提供的命令：`mcp`、`context`、`purge`、`project alias`、`export`、`remind` |
 | 5 | [检索](05-search.md) | 中文分析器、排序、过滤 |
 | 6 | [核验与可能过期](06-source-check.md) | 各来源的核验方式、核验缓存、可能过期的推导 |
-| 7 | [复核](07-review.md) | 三类问题；相似度定义与阈值 |
+| 7 | [复核](07-review.md) | 两类问题；相似度定义与阈值 |
 | 8 | （空缺） | Server 模式推迟到 v0.2；编号保留，以免改动各章的交叉引用 |
 | 9 | [接入](09-integration.md) | 插件、SKILL.md、会话开始注入、写入提醒、Writer 推断 |
 | 10 | [错误码与 hint](10-errors.md) | 全部错误码 |

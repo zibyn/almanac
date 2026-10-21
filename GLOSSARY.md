@@ -37,11 +37,11 @@ _Avoid_: namespace、context
 _Avoid_: 合并、重命名、rename
 
 **Writer（写入方）**:
-执行某次写入的智能体身份（如 Codex、Claude Code、Pi），是来源信息的一部分。
+执行某次写入的智能体或人的身份（如 Codex、Claude Code、Pi、human），是来源信息的一部分。
 _Avoid_: client、user、author
 
 **Provenance（来源）**:
-证据从何而来的信息：来源类型、位置、时间、写入方，以及可用于再次核验的指纹。
+证据从何而来的信息：来源类型、位置、时间、写入方。
 _Avoid_: source（单独使用时有歧义）、metadata
 
 ### 记忆生命周期
@@ -81,7 +81,7 @@ _Avoid_: 过期、失效、expired
 ### 维护
 
 **Review（复核）**:
-按需检查记忆库，列出待人或智能体处置的问题：多个生效后继、可能过期、无据。只报告，不处置。
+按需检查记忆库，列出待人或智能体处置的问题：可能过期、无据。只报告，不处置。
 _Avoid_: 整理、清理、巡检、consolidation
 
 **Write Reminder（写入提醒）**:

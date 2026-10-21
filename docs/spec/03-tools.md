@@ -36,7 +36,7 @@
 ```
 
 - `hint` 可选，告诉智能体下一步怎么改。全部错误码见第 10 章。
-- 任何工具都可能返回：`INVALID_ARGS`、`STORE_NEWER`（第 2 章）。写工具还可能返回 `NO_WRITER`（第 9 章）与 `STORE_BUSY`（第 2 章）。
+- 任何工具都可能返回 `INVALID_ARGS`。写工具还可能返回 `NO_WRITER`（第 9 章）、`STORE_BUSY` 与 `STORE_NEWER`（第 2 章）。
 - 写工具全部检查通过才写日志：一次调用＝一个事务，要么整体生效，要么什么都不写。
 
 ### 作用域过滤
@@ -88,7 +88,7 @@
 |---|---|---|---|
 | `query` | string? | — | 省略则只按过滤条件列出，按最近一次记录或附证时间倒序 |
 | `kind` | `memory` \| `evidence` | `memory` | |
-| `scope`、`all` | | | 见「作用域过滤」；`kind=evidence` 时不适用 |
+| `scope`、`all` | | | 见「作用域过滤」 |
 | `status` | 状态值数组 | `["active"]` | `active` / `superseded` / `retracted` / `unsupported` / `purged`；已清除的没有全文字段，只在省略 `query` 时可能列出 |
 | `epistemic` | 认知状态值数组? | — | `observed` / `user_stated` / `inferred` |
 | `writer` | string? | — | Writer 的 `name` |
@@ -97,6 +97,8 @@
 | `source_type` | 来源类型数组? | — | 仅 `kind=evidence`：`conversation` / `file` / `web` / `command` |
 | `limit` | int | 10 | 1–50 |
 | `project` | path? | — | 见「共同约定」 |
+
+`kind=evidence` 时检索整个库，只接受 `query`、`source_type`、`limit`、`project`；给出只对记忆有效的参数（`scope`、`all`、`status`、`epistemic`、`writer`、`cites`、`stale_only`）报 `INVALID_ARGS`。`kind=memory` 时给出 `source_type` 同样报 `INVALID_ARGS`。
 
 ### 响应
 
@@ -169,11 +171,11 @@
 
 ## review
 
-按需检查记忆库，列出待处置的问题。只读、不联网：可能过期只读核验缓存，不重新核验。只报告，从不处置，也不保存待办状态。三类问题的判定见第 7 章。
+按需检查记忆库，列出待处置的问题。只读、不联网：可能过期只读核验缓存，不重新核验。只报告，从不处置，也不保存待办状态。两类问题的判定见第 7 章。
 
 **给模型的描述**：
 
-> 列出记忆库中待处置的问题：多个生效后继、可能过期、无据。只报告，不处置；每项附建议操作，由你或用户决定。用户要求整理记忆时调用。
+> 列出记忆库中待处置的问题：可能过期、无据。只报告，不处置；每项附建议操作，由你或用户决定。用户要求整理记忆时调用。
 
 ### 参数
 
@@ -192,7 +194,6 @@
 
 | `type` | 其余字段 | `actions`（建议操作） |
 |---|---|---|
-| `multiple_successors` | `memory`：被取代的记忆；`successors`：它的生效后继 | `supersede`（一条新记忆同时取代这些后继）、`retract`（撤回其一） |
 | `stale` | `memory`；`stale`：`Stale` | `corroborate`、`supersede`、`retract` |
 | `unsupported` | `memory` | `supersede`（用新证据重记）、`retract` |
 

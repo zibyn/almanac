@@ -44,7 +44,7 @@ package.json                         只为 Pi：仅有 "pi" 键
 
 ## 会话开始注入
 
-三段配置调用同一条 `almanac context`（第 4 章）：只读、永不阻塞，项目取进程的当前工作目录。这段注入不写入，所以不需要 Writer。
+三段配置调用同一条 `almanac context`（第 4 章）：只读、永不阻塞，项目按通用规则确定（`CLAUDE_PROJECT_DIR` → 当前工作目录）。这段注入不写入，所以不需要 Writer。
 
 ### CC 与 Codex：`hooks/hooks.json`
 

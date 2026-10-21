@@ -16,7 +16,7 @@
 |---|---|---|
 | CLI 工具（第 3 章） | stdout 为响应 JSON，退出码 0 | stdout 为错误 JSON，退出码 1 |
 | MCP 工具 | 工具结果的文本内容为响应 JSON | 工具结果 `isError: true`，文本内容为错误 JSON |
-| 仅 CLI 命令（第 4 章） | 退出码 0 | stderr 一行 `<code>：<message>`，退出码 1；`context` 例外，永远退出码 0（第 4 章） |
+| 仅 CLI 命令（第 4 章） | 退出码 0 | stderr 一行 `<code>：<message>`，退出码 1；`context`、`remind` 例外，永远退出码 0（第 4 章） |
 
 `get` 中不存在的 id 不是错误：只在对应位置返回 `{ id, error: "NOT_FOUND" }`（第 3 章）。
 
@@ -48,7 +48,7 @@
 | code | 条件 | hint | 来源 |
 |---|---|---|---|
 | `STORE_BUSY` | 10 秒内拿不到写锁 | 稍后重试 | 2 |
-| `STORE_NEWER` | 日志中有比本二进制新的格式版本，记忆库只读 | 升级 almanac | 2 |
+| `STORE_NEWER` | 日志中有比本二进制新的格式版本，记忆库只读：写入、`purge`、`project alias` 被拒绝，读照常 | 升级 almanac | 2 |
 
 ### 清除
 
