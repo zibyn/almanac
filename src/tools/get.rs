@@ -49,11 +49,13 @@ fn memory(s: &State, id: &str) -> Option<Value> {
         "epistemic": m.epistemic,
         "status": s.status(id),
         "recorded": recorded,
-        "evidence": m.evidence.iter().filter_map(|e| evidence(s, e, false)).collect::<Vec<_>>(),
+        "evidence": s.current_evidence(id).iter().filter_map(|e| evidence(s, e, false)).collect::<Vec<_>>(),
         "supersedes": m.supersedes,
         "superseded_by": s.superseded_by.get(id).cloned().unwrap_or_default(),
-        "corroborations": [],
-        "retraction": null,
+        "corroborations": s.corroborations.get(id).into_iter().flatten()
+            .map(|(ev, recorded)| json!({ "evidence": ev, "recorded": recorded }))
+            .collect::<Vec<_>>(),
+        "retraction": s.retractions.get(id).map(|(reason, recorded)| json!({ "reason": reason, "recorded": recorded })),
         "stale": null,
     });
     if let Some(p) = &m.project {

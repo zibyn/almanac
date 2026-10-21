@@ -30,6 +30,14 @@ pub struct Writer {
 pub enum Event {
     EvidenceRecorded(Evidence),
     MemoryRecorded(Memory),
+    Corroborated {
+        memory: String,
+        evidence: Vec<String>,
+    },
+    Retracted {
+        memory: String,
+        reason: String,
+    },
     /// Any event type this binary does not know; skipped on replay.
     #[serde(other)]
     Unknown,

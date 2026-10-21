@@ -1,7 +1,8 @@
 //! `record`: write evidence and/or memories atomically, as one transaction (spec ch. 3).
 
 use crate::error::ToolError;
-use crate::model::{Event, Evidence, Memory, Tx, new_id};
+use crate::model::{Event, Evidence, Memory, Tx, Writer, new_id};
+use crate::state::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -76,14 +77,34 @@ impl Epistemic {
 }
 
 pub fn run(args: Args) -> Result<Value, ToolError> {
-    let evidence = args.evidence.unwrap_or_default();
-    let memories = args.memories.unwrap_or_default();
-    if evidence.is_empty() && memories.is_empty() {
+    if args.evidence.as_ref().is_none_or(Vec::is_empty)
+        && args.memories.as_ref().is_none_or(Vec::is_empty)
+    {
         return Err(super::missing_field("evidence 或 memories"));
     }
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
     let state = super::load()?;
     let at = crate::model::now();
+    let (events, out) = build(args, &state, &writer, &at)?;
+    // A pure retry adds nothing, so it writes nothing.
+    if !events.is_empty() {
+        let mut tx = Tx::new(writer, events);
+        tx.at = at;
+        crate::log::append(&crate::log::home(), &tx).map_err(super::io_error)?;
+    }
+    Ok(out)
+}
+
+/// Runs every check and returns the events to write plus the response; writes nothing.
+/// `corroborate` reuses it for inline evidence.
+pub(super) fn build(
+    args: Args,
+    state: &State,
+    writer: &Writer,
+    at: &str,
+) -> Result<(Vec<Event>, Value), ToolError> {
+    let evidence = args.evidence.unwrap_or_default();
+    let memories = args.memories.unwrap_or_default();
     let mut events = vec![];
 
     // ref or id → (id, source type)
@@ -137,7 +158,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
                         "web 来源的 url 必须是 http 或 https：{url}"
                     )));
                 }
-                json!({ "type": "web", "url": url, "fetched_at": fetched_at.unwrap_or_else(|| at.clone()) })
+                json!({ "type": "web", "url": url, "fetched_at": fetched_at.unwrap_or_else(|| at.to_string()) })
             }
             SourceIn::Command {
                 command,
@@ -249,6 +270,9 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
             )
             .hint(format!("改用 corroborate 给 {} 附证", old.id)));
         }
+        for old in &supersedes {
+            super::check_replaceable(state, old)?;
+        }
         let id = new_id("mem");
         mem_out.push(json!({ "id": id, "deduped": false, "similar": [] }));
         events.push(Event::MemoryRecorded(Memory {
@@ -263,13 +287,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         }));
     }
 
-    // A pure retry adds nothing, so it writes nothing.
-    if !events.is_empty() {
-        let mut tx = Tx::new(writer, events);
-        tx.at = at;
-        crate::log::append(&crate::log::home(), &tx).map_err(super::io_error)?;
-    }
-    Ok(json!({ "evidence": ev_out, "memories": mem_out }))
+    Ok((events, json!({ "evidence": ev_out, "memories": mem_out })))
 }
 
 fn source_type(source: &Value) -> String {
