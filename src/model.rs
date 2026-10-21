@@ -1,0 +1,101 @@
+//! Log format (spec ch. 1–2): the on-disk contract. Readers ignore unknown fields and event types.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+pub const LOG_VERSION: u64 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tx {
+    pub v: u64,
+    pub tx: String,
+    pub at: String,
+    pub writer: Writer,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_commit: Option<String>,
+    pub events: Vec<Event>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Writer {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Event {
+    EvidenceRecorded(Evidence),
+    MemoryRecorded(Memory),
+    /// Any event type this binary does not know; skipped on replay.
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Evidence {
+    pub id: String,
+    pub excerpt: String,
+    /// Kept as raw JSON so source types added later still replay.
+    pub source: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Memory {
+    pub id: String,
+    pub text: String,
+    pub scope: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_commit: Option<String>,
+    pub epistemic: String,
+    pub evidence: Vec<String>,
+    #[serde(default)]
+    pub supersedes: Vec<String>,
+}
+
+/// `Recorded` in tool output: the transaction an object came from.
+#[derive(Debug, Clone, Serialize)]
+pub struct Recorded {
+    pub tx: String,
+    pub at: String,
+    pub writer: Writer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_commit: Option<String>,
+}
+
+impl Tx {
+    /// A new transaction stamped with a fresh id and the current time.
+    pub fn new(writer: Writer, events: Vec<Event>) -> Self {
+        Tx {
+            v: LOG_VERSION,
+            tx: new_id("tx"),
+            at: now(),
+            writer,
+            git_commit: None,
+            events,
+        }
+    }
+
+    pub fn recorded(&self) -> Recorded {
+        Recorded {
+            tx: self.tx.clone(),
+            at: self.at.clone(),
+            writer: self.writer.clone(),
+            git_commit: self.git_commit.clone(),
+        }
+    }
+}
+
+pub fn new_id(prefix: &str) -> String {
+    format!("{prefix}_{}", ulid::Ulid::generate())
+}
+
+/// UTC RFC 3339 with milliseconds, e.g. `2026-10-20T08:00:00.000Z`.
+pub fn now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
