@@ -229,6 +229,37 @@ fn a_section_gives_its_unused_half_to_the_other() {
 }
 
 #[test]
+fn two_sections_over_budget_take_half_each() {
+    let d = tempfile::tempdir().unwrap();
+    let a = in_dir(d.path());
+    for i in 0..4 {
+        for scope in ["project", "global"] {
+            let text = format!(
+                "{}记忆{i}",
+                if scope == "project" {
+                    "项目"
+                } else {
+                    "全局"
+                }
+            );
+            record(&a, d.path(), &text, scope, "observed", &[conv()]);
+        }
+    }
+    let full = context(&a, &[]).stdout;
+    let lines: Vec<&str> = full.lines().collect();
+    // Title, blank, project heading + 4 items, blank, global heading + 4 items.
+    assert_eq!(lines.len(), 13, "{full}");
+    assert!(lines[2] == "## 项目" && lines[8] == "## 全局", "{full}");
+    // Equal-sized sections: a budget for two items of each leaves neither a share to give away.
+    let want = format!(
+        "{}\n\n{}\n{}\n{}\n另有 2 条未列出，用 search 查\n\n{}\n{}\n{}\n另有 2 条未列出，用 search 查\n",
+        lines[0], lines[2], lines[3], lines[4], lines[8], lines[9], lines[10]
+    );
+    let n = want.chars().count().to_string();
+    assert_eq!(context(&a, &["--max-chars", &n]).stdout, want);
+}
+
+#[test]
 fn marks_stale_from_the_cache_and_counts_review_issues_without_checking() {
     let d = tempfile::tempdir().unwrap();
     std::fs::write(d.path().join("a.txt"), "cargo build\n").unwrap();
@@ -299,6 +330,22 @@ fn any_failure_is_one_line_and_exit_zero() {
     let unreadable = in_dir(d.path());
     std::fs::create_dir_all(unreadable.log_path()).unwrap();
     assert_unavailable(&context(&unreadable, &[]));
+}
+
+#[test]
+fn a_closed_stdout_still_exits_zero() {
+    let d = tempfile::tempdir().unwrap();
+    let a = in_dir(d.path());
+    record(
+        &a,
+        d.path(),
+        "周报每周五发",
+        "global",
+        "observed",
+        &[conv()],
+    );
+    assert_eq!(a.run_stdout_closed(&["context"]), 0);
+    assert_eq!(a.run_stdout_closed(&["context", "--max-chars", "x"]), 0);
 }
 
 #[test]

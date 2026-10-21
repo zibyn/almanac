@@ -92,15 +92,19 @@ impl Almanac {
         self.env.retain(|(key, _)| key != k);
     }
 
-    /// Spawns `almanac <args…>` with this store's env and cwd, all three pipes captured.
-    pub fn spawn(&self, args: &[&str]) -> std::process::Child {
+    /// `almanac <args…>` with this store's env and cwd.
+    fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_almanac"));
         if let Some(d) = &self.cwd {
             cmd.current_dir(d);
         }
-        cmd.args(args)
-            .env_clear()
-            .envs(self.env.iter().cloned())
+        cmd.args(args).env_clear().envs(self.env.iter().cloned());
+        cmd
+    }
+
+    /// Spawns `almanac <args…>` with this store's env and cwd, all three pipes captured.
+    pub fn spawn(&self, args: &[&str]) -> std::process::Child {
+        self.command(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -122,6 +126,20 @@ impl Almanac {
             stdout: String::from_utf8(o.stdout).unwrap(),
             stderr: String::from_utf8(o.stderr).unwrap(),
         }
+    }
+
+    /// Runs `almanac <args…>` with stdout on a pipe whose read end is already closed; returns the exit code.
+    pub fn run_stdout_closed(&self, args: &[&str]) -> i32 {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        self.command(args)
+            .stdin(Stdio::null())
+            .stdout(writer)
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .code()
+            .unwrap_or(-1)
     }
 
     /// Runs `almanac <args…>` with stdin, stdout and stderr on a pseudo-terminal, typing `input`.

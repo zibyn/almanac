@@ -279,3 +279,37 @@ fn purged_evidence_is_not_found_by_query_and_listed_as_a_tombstone() {
     assert_eq!(r["hits"][0]["id"], mem.as_str());
     assert_eq!(r["hits"][0]["source_types"], json!(["command"]));
 }
+
+#[test]
+fn related_objects_are_expanded_one_level_only() {
+    let a = Almanac::new();
+    let r = a
+        .tool(
+            "record",
+            json!({
+                "evidence": [
+                    {"ref": "e1", "excerpt": "DEPLOY_KEY=hunter2", "source": {"type": "conversation"}},
+                    {"ref": "e2", "excerpt": "部署走环境文件", "source": {"type": "conversation"}}
+                ],
+                "memories": [{"text": "部署密钥放在环境文件里", "scope": "global", "evidence": ["e1", "e2"]}]
+            }),
+        )
+        .ok();
+    let (e1, e2) = (
+        r["evidence"][0]["id"].as_str().unwrap(),
+        r["evidence"][1]["id"].as_str().unwrap(),
+    );
+    let mem = r["memories"][0]["id"].as_str().unwrap();
+
+    // The memory citing e1 is asked about; e2, which only that memory cites, is not.
+    let o = a.run_tty(&["purge", e1, "--reason", "含部署密钥"], "y\nyes\n");
+    assert!(
+        o.stdout.contains(&format!("一并清除 记忆 {mem}")),
+        "{}",
+        o.stdout
+    );
+    assert!(!o.stdout.contains(e2), "{}", o.stdout);
+    assert!(o.stdout.contains("已清除 2 个对象"), "{}", o.stdout);
+    assert!(get(&a, e2).get("purged").is_none());
+    assert!(get(&a, mem)["purged"].is_object());
+}

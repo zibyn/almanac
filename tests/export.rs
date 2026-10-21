@@ -269,3 +269,41 @@ fn all_adds_superseded_retracted_and_purged_memories() {
     }
     assert!(!out.contains("不该记的记忆\n- "), "{out}");
 }
+
+#[test]
+fn all_shows_a_retracted_then_purged_memory_with_its_reason_tombstoned() {
+    let a = Almanac::new();
+    let (ev, mem) = a.remember("要撤回再清除的记忆");
+    a.tool(
+        "retract",
+        serde_json::json!({"memory": &mem, "reason": "原因里也有隐私"}),
+    )
+    .ok();
+    let o = a.run_tty(&["purge", &mem, "--reason", "隐私"], "n\nyes\n");
+    assert_eq!(o.code, 0, "{}", o.stdout);
+
+    let t = today();
+    let out = export(&a, &["--all"]);
+    let want = format!(
+        "### {mem} · 用户陈述 · {t} · 已清除\n已清除：隐私（{t}）\n撤回原因：已清除：隐私（{t}）\n- {ev}（"
+    );
+    assert!(out.contains(&want), "missing {want:?} in:\n{out}");
+    assert!(!out.contains("原因里也有隐私"), "{out}");
+    assert!(!export(&a, &[]).contains(mem.as_str()));
+}
+
+#[test]
+fn an_unreadable_log_exits_1_with_one_error_line() {
+    let a = Almanac::new();
+    std::fs::create_dir_all(a.log_path()).unwrap();
+    let o = a.run(&["export"], None);
+    assert_eq!(o.code, 1, "{}", o.stdout);
+    assert_eq!(o.stdout, "");
+    assert_eq!(o.stderr.lines().count(), 1, "{}", o.stderr);
+    let (code, _) = o.stderr.split_once('：').expect(&o.stderr);
+    assert!(
+        !code.is_empty() && code.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
+        "{}",
+        o.stderr
+    );
+}

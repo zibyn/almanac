@@ -6,6 +6,7 @@ use crate::source_check as sc;
 use crate::state::State;
 use crate::tools::search::{Scope, alias_hint, in_scope, scope_group};
 use std::cmp::Reverse;
+use std::io::Write;
 
 const DEFAULT_MAX_CHARS: usize = 6000;
 
@@ -13,11 +14,12 @@ const DEFAULT_MAX_CHARS: usize = 6000;
 pub fn run(args: &[String]) -> i32 {
     std::panic::set_hook(Box::new(|_| {}));
     let out = std::panic::catch_unwind(|| render(args)).unwrap_or_else(|_| Err("内部错误".into()));
-    match out {
-        Ok(Some(md)) => println!("{md}"),
-        Ok(None) => {}
-        Err(why) => println!("almanac 不可用：{why}"),
-    }
+    // A closed stdout is ignored: println! would panic outside catch_unwind.
+    let _ = match out {
+        Ok(Some(md)) => writeln!(std::io::stdout(), "{md}"),
+        Ok(None) => Ok(()),
+        Err(why) => writeln!(std::io::stdout(), "almanac 不可用：{why}"),
+    };
     0
 }
 

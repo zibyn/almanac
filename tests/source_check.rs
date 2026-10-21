@@ -427,3 +427,26 @@ fn verify_without_ids_covers_active_memories_in_scope() {
         .ok();
     assert_eq!(v["checked"], json!([]));
 }
+
+#[test]
+fn purged_evidence_does_not_make_a_memory_stale() {
+    let d = project("构建用 cargo build\n");
+    let a = Almanac::new();
+    let (ev, mem) = remember_file(&a, d.path(), "cargo build");
+    std::fs::write(d.path().join("a.txt"), "构建用 make\n").unwrap();
+    assert_eq!(
+        get(&a, d.path(), &mem)["stale"],
+        json!([{"evidence": ev, "result": "changed"}])
+    );
+
+    // A cache entry written for the evidence before it was purged (purge deletes the cache;
+    // a concurrent reader that loaded the log earlier may write it back).
+    let cache = a.home.path().join("cache/checks.json");
+    let saved = std::fs::read(&cache).unwrap();
+    let o = a.run_tty(&["purge", &ev, "--reason", "测试"], "n\nyes\n");
+    assert_eq!(o.code, 0, "{}", o.stdout);
+    std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    std::fs::write(&cache, saved).unwrap();
+
+    assert_eq!(get(&a, d.path(), &mem)["stale"], Value::Null);
+}
