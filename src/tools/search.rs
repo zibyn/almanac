@@ -226,7 +226,7 @@ fn evidence_hits(s: &State, args: &Args, limit: usize) -> Vec<Value> {
         .take(limit)
         .map(|(id, score, matched)| {
             let e = &s.evidence[id].0;
-            json!({
+            let mut v = json!({
                 "id": id,
                 "kind": "evidence",
                 "source_type": e.source["type"],
@@ -235,7 +235,9 @@ fn evidence_hits(s: &State, args: &Args, limit: usize) -> Vec<Value> {
                 "cited_by": s.cited_by.get(id).cloned().unwrap_or_default(),
                 "score": score,
                 "matched_terms": matched,
-            })
+            });
+            super::tombstone(&mut v, "excerpt", &e.purged);
+            v
         })
         .collect()
 }

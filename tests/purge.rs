@@ -226,3 +226,56 @@ fn purge_refuses_when_stdin_is_not_a_terminal() {
     assert!(o.stderr.starts_with("NOT_INTERACTIVE："), "{}", o.stderr);
     assert_eq!(a.log_raw(), before);
 }
+
+#[test]
+fn a_purged_memory_is_listed_as_a_tombstone_only_by_status_without_query() {
+    let a = Almanac::new();
+    let (_, mem) = a.remember("独角兽密语");
+    let o = a.run_tty(&["purge", &mem, "--reason", "隐私"], "n\nyes\n");
+    assert_eq!(o.code, 0, "{}", o.stdout);
+
+    assert_eq!(a.tool("search", json!({})).ok()["hits"], json!([]));
+    let hits = a
+        .tool(
+            "search",
+            json!({"status": ["purged"], "query": "独角兽密语"}),
+        )
+        .ok()["hits"]
+        .clone();
+    assert_eq!(hits, json!([]));
+
+    let r = a.tool("search", json!({"status": ["purged"]})).ok();
+    let h = &r["hits"][0];
+    assert_eq!(h["id"], mem.as_str());
+    assert_eq!(h["status"], "purged");
+    assert!(h.get("text").is_none(), "{h}");
+    assert_eq!(h["purged"]["reason"], "隐私");
+    assert_eq!(h["purged"]["by"], json!({"name": "human"}));
+}
+
+#[test]
+fn purged_evidence_is_not_found_by_query_and_listed_as_a_tombstone() {
+    let a = Almanac::new();
+    let (ev, mem) = secret(&a);
+    let o = a.run_tty(&["purge", &ev, "--reason", "含部署密钥"], "n\nyes\n");
+    assert_eq!(o.code, 0, "{}", o.stdout);
+
+    let r = a
+        .tool("search", json!({"kind": "evidence", "query": "DEPLOY_KEY"}))
+        .ok();
+    assert_eq!(r["hits"], json!([]));
+
+    let r = a.tool("search", json!({"kind": "evidence"})).ok();
+    let h = &r["hits"][0];
+    assert_eq!(h["id"], ev.as_str());
+    assert_eq!(h["source_type"], "command");
+    assert!(h.get("excerpt").is_none(), "{h}");
+    assert_eq!(h["purged"]["reason"], "含部署密钥");
+    assert_eq!(h["cited_by"], json!([mem]));
+    assert!(!r.to_string().contains("hunter2"), "{r}");
+
+    // The memory it supported is now unsupported and found only by that status.
+    let r = a.tool("search", json!({"status": ["unsupported"]})).ok();
+    assert_eq!(r["hits"][0]["id"], mem.as_str());
+    assert_eq!(r["hits"][0]["source_types"], json!(["command"]));
+}
