@@ -90,7 +90,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
 }
 
 /// Latest record or corroboration time of a memory.
-fn last_at<'a>(s: &'a State, id: &str) -> &'a str {
+pub(crate) fn last_at<'a>(s: &'a State, id: &str) -> &'a str {
     s.corroborations
         .get(id)
         .and_then(|c| c.last())

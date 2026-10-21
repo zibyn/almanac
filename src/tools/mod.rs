@@ -5,7 +5,7 @@ mod corroborate;
 mod get;
 mod record;
 mod retract;
-mod search;
+pub(crate) mod search;
 
 use crate::error::ToolError;
 use serde::de::DeserializeOwned;

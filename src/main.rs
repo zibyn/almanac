@@ -8,6 +8,7 @@ mod model;
 mod project;
 mod remind;
 mod secrets;
+mod similarity;
 mod source_check;
 mod state;
 mod tools;
