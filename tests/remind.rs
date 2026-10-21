@@ -107,6 +107,10 @@ fn failures_are_silent_exit_zero() {
     let blocked = with_every("1");
     std::fs::write(blocked.home.path().join("cache"), "").unwrap();
     assert_silent(&stop(&blocked, "s"));
+
+    // The harness clears the environment, so HOME and XDG_DATA_HOME are unset too.
+    let nowhere = Almanac::new().unset("ALMANAC_HOME");
+    assert_silent(&stop(&nowhere, "s"));
 }
 
 #[test]

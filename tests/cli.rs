@@ -3,6 +3,13 @@ use common::Almanac;
 use serde_json::json;
 
 #[test]
+fn no_resolvable_store_is_a_store_io_error() {
+    // The harness clears the environment, so HOME and XDG_DATA_HOME are unset too.
+    let a = Almanac::new().unset("ALMANAC_HOME");
+    a.tool("search", json!({"all": true})).err("STORE_IO");
+}
+
+#[test]
 fn json_dash_reads_args_from_stdin() {
     let a = Almanac::new();
     let (_, mem) = a.remember("用户喜欢 \"引号\" 与中文");

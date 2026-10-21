@@ -108,6 +108,6 @@ fn tombstone(v: &mut Value, field: &str, purged: &Option<Value>) {
 
 /// Replays the store's log into derived state.
 fn load() -> Result<crate::state::State, ToolError> {
-    let txs = crate::log::replay(&crate::log::home()).map_err(crate::log::io_error)?;
+    let txs = crate::log::replay(&crate::log::home()?).map_err(crate::log::io_error)?;
     Ok(crate::state::State::replay(&txs))
 }

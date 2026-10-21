@@ -37,7 +37,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         .flat_map(|id| s.current_evidence(id))
         .collect();
     let (cache, _, _) = sc::refresh(
-        &crate::log::home(),
+        &crate::log::home()?,
         &s,
         sc::here(&s, cur.as_ref()).as_ref(),
         cited.iter().map(String::as_str),

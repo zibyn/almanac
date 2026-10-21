@@ -28,7 +28,7 @@ fn render(args: &[String]) -> Result<Option<String>, String> {
             .map_err(|_| format!("--max-chars 须为非负整数，收到 {n}"))?,
         _ => return Err(format!("无法识别的参数：{}", args.join(" "))),
     };
-    let home = crate::log::home();
+    let home = crate::log::home().map_err(|e| e.message)?;
     if !home.is_dir() {
         return Err(format!("记忆库 {} 不存在", home.display()));
     }

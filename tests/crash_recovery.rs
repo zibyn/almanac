@@ -27,6 +27,8 @@ fn the_next_write_truncates_a_torn_last_line_and_logs_it_to_stderr() {
     let r = record_one(&a);
     r.ok();
     assert!(r.stderr.contains("残缺"), "{}", r.stderr);
+    // The cut line may hold a secret: only its length is reported.
+    assert!(!r.stderr.contains("tx_half"), "{}", r.stderr);
     let log = a.log();
     assert_eq!(log.len(), 2);
     assert_eq!(log[0]["events"][1]["id"], mem.as_str());

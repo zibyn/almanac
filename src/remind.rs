@@ -31,7 +31,7 @@ fn should_remind() -> Option<bool> {
     if hook["stop_hook_active"] == true {
         return Some(false);
     }
-    let home = crate::log::home();
+    let home = crate::log::home().ok()?;
     if !home.is_dir() {
         return None;
     }

@@ -30,7 +30,7 @@ fn alias(args: &[String]) -> Result<String, ToolError> {
     if a.is_empty() || b.is_empty() || a == b {
         return Err(ToolError::invalid_args("两个项目标识必须不同且非空"));
     }
-    crate::log::write(&crate::log::home(), |state| {
+    crate::log::write(&crate::log::home()?, |state| {
         if state.alias_group(a).contains(b) {
             return Ok((None, format!("{a} 与 {b} 已在同一别名组内，无需写入")));
         }

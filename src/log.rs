@@ -10,18 +10,24 @@ use std::time::{Duration, Instant};
 
 const LOCK_WAIT: Duration = Duration::from_secs(10);
 
-/// Store directory: `ALMANAC_HOME`, else `$XDG_DATA_HOME/almanac`, else `~/.local/share/almanac`.
-pub fn home() -> PathBuf {
+/// Store directory: `ALMANAC_HOME`, else `$XDG_DATA_HOME/almanac`, else `$HOME/.local/share/almanac`;
+/// `STORE_IO` when none of the three is set.
+pub fn home() -> Result<PathBuf, ToolError> {
     let var = |k| std::env::var_os(k).filter(|v| !v.is_empty());
     if let Some(h) = var("ALMANAC_HOME") {
-        return h.into();
+        return Ok(h.into());
     }
-    let data = var("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| {
-        std::env::home_dir()
-            .expect("neither ALMANAC_HOME nor HOME is set")
-            .join(".local/share")
-    });
-    data.join("almanac")
+    let data = var("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| var("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .ok_or_else(|| {
+            ToolError::new(
+                "STORE_IO",
+                "找不到记忆库：ALMANAC_HOME、XDG_DATA_HOME、HOME 都没有设置",
+            )
+            .hint("设置 ALMANAC_HOME")
+        })?;
+    Ok(data.join("almanac"))
 }
 
 /// Warns on stderr when the store sits in a common sync-folder path, where `flock` is
@@ -175,10 +181,7 @@ pub fn write<T>(
         return Err(store_newer());
     }
     if keep < raw.len() {
-        eprintln!(
-            "almanac: 截掉日志末尾的残缺行（崩溃留下的不完整写入）：{}",
-            String::from_utf8_lossy(&raw[keep..]).trim_end()
-        );
+        warn_torn(raw.len() - keep);
         f.set_len(keep as u64).map_err(io_error)?;
     }
     let (tx, out) = build(&State::replay(&parsed.txs))?;
@@ -203,10 +206,7 @@ pub fn rewrite(
     // We hold the lock, so a torn last line is a crash leftover: drop it, like `write` does.
     let keep = without_torn_line(&raw);
     if keep.len() < raw.len() {
-        eprintln!(
-            "almanac: 截掉日志末尾的残缺行（崩溃留下的不完整写入）：{}",
-            String::from_utf8_lossy(&raw[keep.len()..]).trim_end()
-        );
+        warn_torn(raw.len() - keep.len());
     }
     let mut out = Vec::with_capacity(keep.len());
     for line in keep.split_inclusive(|&b| b == b'\n') {
@@ -235,6 +235,11 @@ pub fn rewrite(
     f.sync_all().map_err(io_error)?;
     std::fs::rename(&tmp, &path).map_err(io_error)?;
     File::open(dir).and_then(|d| d.sync_all()).map_err(io_error)
+}
+
+/// Only the length: the cut line may hold a secret, and stderr can land in hook output.
+fn warn_torn(bytes: usize) {
+    eprintln!("almanac: 截掉日志末尾的残缺行（崩溃留下的不完整写入，{bytes} 字节）");
 }
 
 /// `raw` minus its last line if that line lacks `\n` or is not valid JSON (spec ch. 2).

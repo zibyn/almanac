@@ -130,7 +130,14 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
                 _ => Default::default(),
             };
             let here = sc::here(&s, current.as_ref());
-            memory_hits(&s, &args, &group, here.as_ref(), limit)
+            memory_hits(
+                &crate::log::home()?,
+                &s,
+                &args,
+                &group,
+                here.as_ref(),
+                limit,
+            )
         }
         Kind::Evidence => evidence_hits(&s, &args, limit),
     };
@@ -159,6 +166,7 @@ pub(crate) fn alias_hint(s: &State, p: &crate::project::Project) -> Option<Value
 }
 
 fn memory_hits(
+    home: &std::path::Path,
     s: &State,
     args: &Args,
     group: &HashSet<String>,
@@ -206,13 +214,7 @@ fn memory_hits(
         .iter()
         .flat_map(|(id, ..)| s.current_evidence(id))
         .collect();
-    let (cache, _, _) = sc::refresh(
-        &crate::log::home(),
-        s,
-        here,
-        cited.iter().map(String::as_str),
-        &["file"],
-    );
+    let (cache, _, _) = sc::refresh(home, s, here, cited.iter().map(String::as_str), &["file"]);
     ranked
         .into_iter()
         .map(|(id, score, matched)| memory_hit(s, &cache, id, score, matched))

@@ -323,3 +323,31 @@ fn each_call_replays_the_log_and_sees_other_processes_writes() {
         mem
     );
 }
+
+#[test]
+fn a_client_that_never_answers_roots_list_counts_as_no_root() {
+    let base = tempfile::tempdir().unwrap();
+    let by_env = base.path().canonicalize().unwrap();
+    let a = Almanac::new().env("CLAUDE_PROJECT_DIR", by_env.to_str().unwrap());
+    let mut m = Mcp::start(&a, "test-client", Some(vec![]));
+    // Watchdog: a hung server is killed, so the test fails instead of hanging.
+    let pid = m.child.id().to_string();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(15));
+        let _ = std::process::Command::new("kill").arg(&pid).status();
+    });
+    let args = json!({"evidence": [{"ref": "e", "excerpt": "记住：周报每周五发", "source": {"type": "conversation"}}],
+                      "memories": [{"text": "周报每周五发", "scope": "project", "evidence": ["e"]}]});
+    m.send(json!({"jsonrpc": "2.0", "id": 99, "method": "tools/call",
+                  "params": {"name": "record", "arguments": args}}));
+    assert_eq!(m.recv()["method"], "roots/list");
+    // Never answered.
+    let reply = m.recv();
+    assert_eq!(reply["id"], 99, "{reply}");
+    let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+    let id = serde_json::from_str::<Value>(text).unwrap()["memories"][0]["id"].clone();
+    assert_eq!(
+        m.ok("get", json!({"ids": [id]}))["records"][0]["project"],
+        format!("path:{}", by_env.display())
+    );
+}

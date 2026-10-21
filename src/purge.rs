@@ -34,7 +34,7 @@ fn purge(args: &[String]) -> Result<(), ToolError> {
     if reason.is_empty() {
         return Err(ToolError::new("MISSING_FIELD", "--reason 不能为空"));
     }
-    let home = log::home();
+    let home = log::home()?;
     log::warn_if_synced(&home);
     log::ensure_writable(&home)?;
     let state = load(&home)?;

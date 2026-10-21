@@ -111,7 +111,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     }
     let writer = crate::writer::current()?;
     let project = crate::project::resolve(args.project.as_deref())?;
-    let home = crate::log::home();
+    let home = crate::log::home()?;
     let (out, checks) = crate::log::write(&home, |state| {
         build(
             state,

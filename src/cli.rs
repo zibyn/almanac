@@ -31,7 +31,9 @@ pub fn run(args: Vec<String>) -> i32 {
         eprintln!("INVALID_ARGS：未知命令 {cmd}");
         return 1;
     }
-    crate::log::warn_if_synced(&crate::log::home());
+    if let Ok(h) = crate::log::home() {
+        crate::log::warn_if_synced(&h);
+    }
     let result = tool_args(rest).and_then(|json| crate::tools::call(cmd, &json));
     match result {
         Ok(v) => {

@@ -54,14 +54,18 @@ fn package_json_has_only_pi_key_with_existing_paths() {
         p["pi"],
         json!({ "skills": ["./plugins/almanac/skills"], "extensions": ["./plugins/almanac/pi/almanac.ts"] })
     );
-    for path in ["./plugins/almanac/skills", "./plugins/almanac/pi/almanac.ts"] {
+    for path in [
+        "./plugins/almanac/skills",
+        "./plugins/almanac/pi/almanac.ts",
+    ] {
         assert!(root().join(path).exists(), "{path}");
     }
 }
 
 #[test]
 fn skill_frontmatter_names_its_directory() {
-    let text = std::fs::read_to_string(root().join("plugins/almanac/skills/almanac/SKILL.md")).unwrap();
+    let text =
+        std::fs::read_to_string(root().join("plugins/almanac/skills/almanac/SKILL.md")).unwrap();
     let front = text
         .strip_prefix("---\n")
         .and_then(|rest| rest.split_once("\n---\n"))

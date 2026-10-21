@@ -24,7 +24,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     } else {
         Default::default()
     };
-    let cache = sc::load_cache(&crate::log::home());
+    let cache = sc::load_cache(&crate::log::home()?);
     let mut ids: Vec<&String> = s
         .memories
         .iter()

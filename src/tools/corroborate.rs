@@ -36,7 +36,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
             }
         }
     }
-    let home = crate::log::home();
+    let home = crate::log::home()?;
     let (out, checks) =
         crate::log::write(&home, |state| build(state, &args, inline, writer, &project))?;
     // The cache is a deletable local observation; failing to write it must not fail a committed write.

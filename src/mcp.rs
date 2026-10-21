@@ -3,9 +3,15 @@
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::{BufRead, Write};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
-struct Server<R, W> {
-    input: std::io::Lines<R>,
+/// How long a `roots/list` answer is awaited before the call goes on without a root.
+const ROOTS_WAIT: Duration = Duration::from_secs(2);
+
+struct Server<W> {
+    /// Input lines, read on their own thread so a wait for the client can time out.
+    input: Receiver<String>,
     out: W,
     /// Client messages read while waiting for a `roots/list` answer, handled next.
     queued: VecDeque<Value>,
@@ -15,9 +21,20 @@ struct Server<R, W> {
 }
 
 pub fn run() -> i32 {
-    crate::log::warn_if_synced(&crate::log::home());
+    if let Ok(h) = crate::log::home() {
+        crate::log::warn_if_synced(&h);
+    }
+    let (tx, input) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
     let mut s = Server {
-        input: std::io::stdin().lock().lines(),
+        input,
         out: std::io::stdout().lock(),
         queued: VecDeque::new(),
         has_roots: false,
@@ -34,23 +51,32 @@ pub fn run() -> i32 {
     0
 }
 
-impl<R: BufRead, W: Write> Server<R, W> {
+impl<W: Write> Server<W> {
     /// The next client message; `None` at end of input. Unparsable lines get a JSON-RPC parse error.
     fn next(&mut self) -> Option<Value> {
         if let Some(m) = self.queued.pop_front() {
             return Some(m);
         }
-        self.read()
+        self.read(None).ok()
     }
 
-    fn read(&mut self) -> Option<Value> {
+    /// The next parsable line; `Err` at end of input or, given a `deadline`, once it passes.
+    fn read(&mut self, deadline: Option<Instant>) -> Result<Value, RecvTimeoutError> {
         loop {
-            let line = self.input.next()?.ok()?;
+            let line = match deadline {
+                Some(d) => self
+                    .input
+                    .recv_timeout(d.saturating_duration_since(Instant::now()))?,
+                None => self
+                    .input
+                    .recv()
+                    .map_err(|_| RecvTimeoutError::Disconnected)?,
+            };
             if line.trim().is_empty() {
                 continue;
             }
             match serde_json::from_str(&line) {
-                Ok(v) => return Some(v),
+                Ok(v) => return Ok(v),
                 Err(e) => self.send(error(&Value::Null, -32700, &format!("JSON 解析失败：{e}"))),
             }
         }
@@ -102,13 +128,15 @@ impl<R: BufRead, W: Write> Server<R, W> {
     }
 
     /// Asks the client for `roots/list` and returns the first `file://` root as a path.
+    /// No answer within `ROOTS_WAIT` counts as no root; a late answer is then a stray response.
     // shortcut: only the first root is used; spec ch. 1 does not say how to pick among several.
     fn root(&mut self) -> Option<String> {
         self.sent += 1;
         let id = json!(format!("almanac-roots-{}", self.sent));
         self.send(json!({"jsonrpc": "2.0", "id": id, "method": "roots/list"}));
+        let deadline = Instant::now() + ROOTS_WAIT;
         loop {
-            let msg = self.read()?;
+            let msg = self.read(Some(deadline)).ok()?;
             if msg["id"] == id && msg.get("method").is_none() {
                 let uri = msg["result"]["roots"][0]["uri"].as_str()?;
                 return uri.strip_prefix("file://").map(percent_decode);

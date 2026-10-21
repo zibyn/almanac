@@ -29,7 +29,7 @@ fn export(args: &[String]) -> Result<String, ToolError> {
         [a] if a == "--all" => true,
         _ => return Err(ToolError::invalid_args("用法 almanac export [--all]")),
     };
-    let home = crate::log::home();
+    let home = crate::log::home()?;
     let s = State::replay(&crate::log::replay(&home).map_err(crate::log::io_error)?);
     let cache = sc::load_cache(&home);
     let shown = |id: &&String| all || matches!(s.status(id), "active" | "unsupported");

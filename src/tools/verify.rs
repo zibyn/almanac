@@ -57,7 +57,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         .flat_map(|m| s.current_evidence(m))
         .collect();
     let (cache, checked, net) = sc::refresh(
-        &crate::log::home(),
+        &crate::log::home()?,
         &s,
         sc::here(&s, cur.as_ref()).as_ref(),
         cited.iter().map(String::as_str),
