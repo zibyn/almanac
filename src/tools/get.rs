@@ -71,9 +71,14 @@ fn memory(s: &State, cache: &Cache, id: &str) -> Option<Value> {
         "corroborations": s.corroborations.get(id).into_iter().flatten()
             .map(|(ev, recorded)| json!({ "evidence": ev, "recorded": recorded }))
             .collect::<Vec<_>>(),
-        "retraction": s.retractions.get(id).map(|(reason, recorded)| json!({ "reason": reason, "recorded": recorded })),
+        // A purged memory's retraction reason is the same tombstone (spec ch. 3).
+        "retraction": s.retractions.get(id).map(|(reason, recorded)| match &m.purged {
+            Some(t) => json!({ "purged": t, "recorded": recorded }),
+            None => json!({ "reason": reason, "recorded": recorded }),
+        }),
         "stale": sc::stale(s, cache, id),
     });
+    super::tombstone(&mut v, "text", &m.purged);
     if let Some(p) = &m.project {
         v["project"] = json!(p);
     }
@@ -94,6 +99,7 @@ fn evidence(s: &State, cache: &Cache, id: &str, with_cited_by: bool) -> Option<V
         "recorded": recorded,
         "check": cache.get(id).map(|c| json!({ "result": c.result, "at": c.at })),
     });
+    super::tombstone(&mut v, "excerpt", &e.purged);
     if with_cited_by {
         v["cited_by"] = json!(s.cited_by.get(id).cloned().unwrap_or_default());
     }

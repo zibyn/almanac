@@ -5,7 +5,7 @@ mod corroborate;
 mod get;
 mod record;
 mod retract;
-mod search;
+pub(crate) mod search;
 mod verify;
 
 use crate::error::ToolError;
@@ -90,6 +90,15 @@ fn not_active(s: &crate::state::State, id: &str, status: &str) -> ToolError {
         e.hint(format!("沿取代链对最新的生效后继操作：{next}"))
     } else {
         e
+    }
+}
+
+/// Spec ch. 3: a purged object carries `purged` in place of its text field (`get` and `search`).
+fn tombstone(v: &mut Value, field: &str, purged: &Option<Value>) {
+    if let Some(t) = purged {
+        let o = v.as_object_mut().unwrap();
+        o.remove(field);
+        o.insert("purged".into(), t.clone());
     }
 }
 

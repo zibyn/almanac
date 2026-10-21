@@ -1,4 +1,4 @@
-//! `search`: lexical retrieval plus structured filters over memories (spec ch. 3, ch. 5).
+//! `search`: lexical retrieval plus structured filters over memories or evidence (spec ch. 3, ch. 5).
 
 use crate::error::ToolError;
 use crate::model::Memory;
@@ -20,18 +20,84 @@ pub(super) enum Scope {
     Any,
 }
 
-// shortcut: kind/status/epistemic/writer/cites/source_type arrive with #39.
+#[derive(Deserialize, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+enum Kind {
+    #[default]
+    Memory,
+    Evidence,
+}
+
+const STATUSES: &[&str] = &["active", "superseded", "retracted", "unsupported", "purged"];
+const EPISTEMICS: &[&str] = &["observed", "user_stated", "inferred"];
+const SOURCE_TYPES: &[&str] = &["conversation", "file", "web", "command"];
+const EXCERPT_CHARS: usize = 200;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Args {
     query: Option<String>,
+    kind: Option<Kind>,
     scope: Option<Scope>,
-    #[serde(default)]
-    all: bool,
-    #[serde(default)]
-    stale_only: bool,
+    all: Option<bool>,
+    status: Option<Vec<String>>,
+    epistemic: Option<Vec<String>>,
+    writer: Option<String>,
+    cites: Option<String>,
+    stale_only: Option<bool>,
+    source_type: Option<Vec<String>>,
     limit: Option<usize>,
     project: Option<String>,
+}
+
+/// `INVALID_ARGS` unless every value of array parameter `field` is one of `allowed`.
+fn check_values(
+    field: &str,
+    vals: &Option<Vec<String>>,
+    allowed: &[&str],
+) -> Result<(), ToolError> {
+    match vals
+        .iter()
+        .flatten()
+        .find(|v| !allowed.contains(&v.as_str()))
+    {
+        Some(v) => Err(ToolError::invalid_args(format!(
+            "{field} 不认识 {v}，可选：{}",
+            allowed.join(" / ")
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// `INVALID_ARGS` naming the first parameter given that `kind` does not take.
+fn check_kind(args: &Args, kind: Kind) -> Result<(), ToolError> {
+    let memory_only = [
+        ("scope", args.scope.is_some()),
+        ("all", args.all.is_some()),
+        ("status", args.status.is_some()),
+        ("epistemic", args.epistemic.is_some()),
+        ("writer", args.writer.is_some()),
+        ("cites", args.cites.is_some()),
+        ("stale_only", args.stale_only.is_some()),
+    ];
+    let bad = match kind {
+        Kind::Memory => args.source_type.is_some().then_some("source_type"),
+        Kind::Evidence => memory_only
+            .iter()
+            .find(|(_, given)| *given)
+            .map(|(f, _)| *f),
+    };
+    match bad {
+        Some(f) => Err(ToolError::invalid_args(format!(
+            "{f} 只对 kind={} 有效",
+            if kind == Kind::Memory {
+                "evidence"
+            } else {
+                "memory"
+            }
+        ))),
+        None => Ok(()),
+    }
 }
 
 pub fn run(args: Args) -> Result<Value, ToolError> {
@@ -41,70 +107,118 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
             "limit 为 {limit}，须在 1–{MAX_LIMIT} 之间"
         )));
     }
+    check_values("status", &args.status, STATUSES)?;
+    check_values("epistemic", &args.epistemic, EPISTEMICS)?;
+    check_values("source_type", &args.source_type, SOURCE_TYPES)?;
+    let kind = args.kind.unwrap_or_default();
+    check_kind(&args, kind)?;
     let scope = args.scope.unwrap_or(Scope::Any);
-    let s = super::load()?;
-    // The current project is required only to limit project-scope memories to its alias group;
-    // otherwise it just tells the lazy check where file evidence lives.
-    let cur = crate::project::resolve(args.project.as_deref());
-    let cur = if scope != Scope::Global && !args.all {
-        Some(cur?)
-    } else {
-        cur.ok()
+    let all = args.all.unwrap_or(false);
+    // The current project filters only project-scope memories limited to its alias group;
+    // otherwise it is needed just for `alias_hint`, so failing to resolve it is not an error.
+    let filters_by_project = kind == Kind::Memory && scope != Scope::Global && !all;
+    let current = match crate::project::resolve(args.project.as_deref()) {
+        Ok(p) => Some(p),
+        Err(e) if filters_by_project => return Err(e),
+        Err(_) => None,
     };
-    let group = cur
-        .as_ref()
-        .map(|p| s.alias_group(&p.id))
-        .unwrap_or_default();
+    let s = super::load()?;
+    let hits = match kind {
+        Kind::Memory => {
+            let group = match &current {
+                Some(p) if filters_by_project => s.alias_group(&p.id),
+                _ => Default::default(),
+            };
+            let here = sc::here(&s, current.as_ref());
+            memory_hits(&s, &args, &group, here.as_ref(), limit)
+        }
+        Kind::Evidence => evidence_hits(&s, &args, limit),
+    };
+    let mut v = json!({ "hits": hits });
+    if let Some(hint) = current.and_then(|p| alias_hint(&s, &p)) {
+        v["alias_hint"] = hint;
+    }
+    Ok(v)
+}
+
+/// Other project identities in the store with the current project's root commit and not yet
+/// in its alias group (spec ch. 1 「项目别名」).
+fn alias_hint(s: &State, p: &crate::project::Project) -> Option<Value> {
+    let root = p.root_commit.as_ref()?;
+    let group = s.alias_group(&p.id);
+    let mut same: Vec<&str> = s
+        .memories
+        .values()
+        .filter(|(m, _)| m.root_commit.as_ref() == Some(root))
+        .filter_map(|(m, _)| m.project.as_deref())
+        .filter(|q| !group.contains(*q))
+        .collect();
+    same.sort_unstable();
+    same.dedup();
+    (!same.is_empty()).then(|| json!({ "project": p.id, "same_root_as": same }))
+}
+
+fn memory_hits(
+    s: &State,
+    args: &Args,
+    group: &HashSet<String>,
+    here: Option<&sc::Here>,
+    limit: usize,
+) -> Vec<Value> {
+    let scope = args.scope.unwrap_or(Scope::Any);
+    let all = args.all.unwrap_or(false);
+    let active = ["active".to_string()];
+    let status = args.status.as_deref().unwrap_or(&active);
 
     // Structured filters come before scoring (spec ch. 5 「结构化过滤」).
     let mut candidates: Vec<&str> = s
         .memories
         .values()
-        .filter(|(m, _)| s.status(&m.id) == "active" && in_scope(m, scope, args.all, &group))
+        .filter(|(m, recorded)| {
+            status.iter().any(|st| st == s.status(&m.id))
+                && args
+                    .epistemic
+                    .as_ref()
+                    .is_none_or(|e| e.contains(&m.epistemic))
+                && args
+                    .writer
+                    .as_ref()
+                    .is_none_or(|w| *w == recorded.writer.name)
+                && args.cites.as_ref().is_none_or(|e| s.cites(&m.id, e))
+                && in_scope(m, scope, all, group)
+        })
         .map(|(m, _)| m.id.as_str())
         .collect();
     // Newest first, then id descending: the order without a query and the tie-break with one.
-    candidates.sort_by_key(|id| Reverse((last_at(&s, id), *id)));
-
-    let hits: Vec<(&str, f64, Vec<String>)> = match &args.query {
-        None => candidates.iter().map(|id| (*id, 0.0, Vec::new())).collect(),
-        Some(q) => {
-            let index = crate::index::Index::new(
-                candidates.iter().map(|id| s.memories[*id].0.text.as_str()),
-            );
-            let mut hits: Vec<_> = index
-                .search(q)
-                .into_iter()
-                .map(|h| (candidates[h.doc], h.score, h.matched))
-                .collect();
-            // Stable sort keeps the recency order among equal scores.
-            hits.sort_by(|a, b| b.1.total_cmp(&a.1));
-            hits
-        }
-    };
+    candidates.sort_by_key(|id| Reverse((last_at(s, id), *id)));
+    let ranked = rank(
+        &candidates,
+        |id| &s.memories[id].0.text,
+        args.query.as_deref(),
+    );
     // Lazy check (spec ch. 3): the returned hits' file evidence; with stale_only, every candidate's.
-    let mut hits = hits;
-    if !args.stale_only {
-        hits.truncate(limit);
+    let stale_only = args.stale_only.unwrap_or(false);
+    let mut ranked = ranked;
+    if !stale_only {
+        ranked.truncate(limit);
     }
-    let cited: Vec<String> = hits
+    let cited: Vec<String> = ranked
         .iter()
         .flat_map(|(id, ..)| s.current_evidence(id))
         .collect();
     let (cache, _, _) = sc::refresh(
         &crate::log::home(),
-        &s,
-        sc::here(&s, cur.as_ref()).as_ref(),
+        s,
+        here,
         cited.iter().map(String::as_str),
         &["file"],
     );
-    let hits: Vec<Value> = hits
+    ranked
         .into_iter()
-        .map(|(id, score, matched)| memory_hit(&s, &cache, id, score, matched))
-        .filter(|h| !args.stale_only || !h["stale"].is_null())
+        .map(|(id, score, matched)| memory_hit(s, &cache, id, score, matched))
+        .filter(|h| !stale_only || !h["stale"].is_null())
         .take(limit)
-        .collect();
-    Ok(json!({ "hits": hits }))
+        .collect()
 }
 
 /// The scope filter shared by `search` and `verify` (spec ch. 3 「作用域过滤」); `group` is the
@@ -118,8 +232,69 @@ pub(super) fn in_scope(m: &Memory, scope: Scope, all: bool, group: &HashSet<Stri
     }
 }
 
+/// Evidence search spans the whole store; only `source_type` filters it.
+fn evidence_hits(s: &State, args: &Args, limit: usize) -> Vec<Value> {
+    let mut candidates: Vec<&str> = s
+        .evidence
+        .values()
+        .filter(|(e, _)| {
+            args.source_type.as_ref().is_none_or(|t| {
+                e.source["type"]
+                    .as_str()
+                    .is_some_and(|ty| t.iter().any(|x| x == ty))
+            })
+        })
+        .map(|(e, _)| e.id.as_str())
+        .collect();
+    candidates.sort_by_key(|id| Reverse((s.evidence[*id].1.at.as_str(), *id)));
+    let ranked = rank(
+        &candidates,
+        |id| &s.evidence[id].0.excerpt,
+        args.query.as_deref(),
+    );
+    ranked
+        .into_iter()
+        .take(limit)
+        .map(|(id, score, matched)| {
+            let e = &s.evidence[id].0;
+            let mut v = json!({
+                "id": id,
+                "kind": "evidence",
+                "source_type": e.source["type"],
+                "excerpt": e.excerpt.chars().take(EXCERPT_CHARS).collect::<String>(),
+                "truncated": e.excerpt.chars().nth(EXCERPT_CHARS).is_some(),
+                "cited_by": s.cited_by.get(id).cloned().unwrap_or_default(),
+                "score": score,
+                "matched_terms": matched,
+            });
+            super::tombstone(&mut v, "excerpt", &e.purged);
+            v
+        })
+        .collect()
+}
+
+/// Scores `candidates` (already in recency order) against `query`; without one, keeps them all
+/// with score 0. Stable sort keeps the recency order among equal scores.
+fn rank<'a>(
+    candidates: &[&'a str],
+    text: impl Fn(&str) -> &'a str,
+    query: Option<&str>,
+) -> Vec<(&'a str, f64, Vec<String>)> {
+    let Some(q) = query else {
+        return candidates.iter().map(|id| (*id, 0.0, Vec::new())).collect();
+    };
+    let index = crate::index::Index::new(candidates.iter().map(|id| text(id)));
+    let mut hits: Vec<_> = index
+        .search(q)
+        .into_iter()
+        .map(|h| (candidates[h.doc], h.score, h.matched))
+        .collect();
+    hits.sort_by(|a, b| b.1.total_cmp(&a.1));
+    hits
+}
+
 /// Latest record or corroboration time of a memory.
-fn last_at<'a>(s: &'a State, id: &str) -> &'a str {
+pub(crate) fn last_at<'a>(s: &'a State, id: &str) -> &'a str {
     s.corroborations
         .get(id)
         .and_then(|c| c.last())
@@ -152,6 +327,7 @@ fn memory_hit(s: &State, cache: &sc::Cache, id: &str, score: f64, matched: Vec<S
         "score": score,
         "matched_terms": matched,
     });
+    super::tombstone(&mut v, "text", &m.purged);
     if let Some(p) = &m.project {
         v["project"] = json!(p);
     }

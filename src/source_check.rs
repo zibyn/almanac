@@ -166,7 +166,8 @@ pub fn refresh<'a>(
     let mut cache = load_cache(home);
     let (mut checked, mut net) = (Vec::<(String, Check)>::new(), vec![]);
     for id in ids {
-        let Some((e, _)) = s.evidence.get(id) else {
+        // Purged evidence has no excerpt or locator left to check.
+        let Some((e, _)) = s.evidence.get(id).filter(|(e, _)| e.purged.is_none()) else {
             continue;
         };
         let src = &e.source;
@@ -204,7 +205,6 @@ pub fn refresh<'a>(
 
 /// Spec ch. 6 「可能过期」: evidence of the latest evidence-bearing event whose cached result is
 /// `changed` or `unreachable`; `null` when there is none.
-// shortcut: purged evidence is not excluded yet; #44 (purge) adds that.
 pub fn stale(s: &State, cache: &Cache, memory: &str) -> Value {
     let latest = match s.corroborations.get(memory).and_then(|c| c.last()) {
         Some((ev, _)) => ev,
@@ -212,6 +212,7 @@ pub fn stale(s: &State, cache: &Cache, memory: &str) -> Value {
     };
     let bad: Vec<Value> = latest
         .iter()
+        .filter(|e| !s.evidence_purged(e))
         .filter_map(|e| {
             let c = cache.get(e)?;
             matches!(c.result.as_str(), "changed" | "unreachable")
@@ -249,7 +250,7 @@ pub fn load_cache(home: &Path) -> Cache {
 }
 
 /// Merges `entries` into the cache via write-to-temp + rename.
-// shortcut: concurrent cache writers can lose each other's entries; fine for a deletable cache until #42/#45 lock it.
+// shortcut: concurrent cache writers can lose each other's entries; fine for a deletable cache; lock it if lost results show up in practice.
 pub fn store(
     home: &Path,
     entries: impl IntoIterator<Item = (String, Check)>,

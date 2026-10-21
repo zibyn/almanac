@@ -143,16 +143,14 @@ pub(super) fn build(
     let at = crate::model::now();
     let mut events = vec![];
 
-    // ref or id → (id, source type)
-    let mut known: HashMap<String, (String, String)> = state
-        .evidence
-        .values()
+    // ref or id → (id, source type). Purged evidence can no longer be cited (EVIDENCE_NOT_FOUND)
+    // nor dedup a new one: it has no fingerprint (spec ch. 1).
+    let live = || state.evidence.values().filter(|(e, _)| e.purged.is_none());
+    let mut known: HashMap<String, (String, String)> = live()
         .map(|(e, _)| (e.id.clone(), (e.id.clone(), source_type(&e.source))))
         .collect();
     // fingerprint → id, for existing evidence and for evidence new in this call
-    let mut by_fp: HashMap<String, String> = state
-        .evidence
-        .values()
+    let mut by_fp: HashMap<String, String> = live()
         .map(|(e, _)| (e.fingerprint(), e.id.clone()))
         .collect();
     let mut refs = HashSet::new();
@@ -234,6 +232,7 @@ pub(super) fn build(
             id: new_id("ev"),
             excerpt: e.excerpt,
             source,
+            purged: None,
         };
         let (id, deduped) = match by_fp.get(&new.fingerprint()) {
             Some(id) => (id.clone(), true),
@@ -352,7 +351,8 @@ pub(super) fn build(
             super::check_replaceable(state, old)?;
         }
         let id = new_id("mem");
-        mem_out.push(json!({ "id": id, "deduped": false, "similar": [] }));
+        let similar = crate::similarity::similar(state, &m.text, &m.scope, &group, &supersedes);
+        mem_out.push(json!({ "id": id, "deduped": false, "similar": similar }));
         events.push(Event::MemoryRecorded(Memory {
             id,
             text: m.text,
@@ -362,6 +362,7 @@ pub(super) fn build(
             epistemic: epistemic.as_str().into(),
             evidence: cited,
             supersedes,
+            purged: None,
         }));
     }
 
