@@ -270,3 +270,272 @@ fn corroboration_bumps_last_at_and_evidence_count() {
     let r = a.tool("search", json!({"query": "foo"})).ok();
     assert_eq!(ids(&r), [old.as_str(), new.as_str()]);
 }
+
+/// Sorted hit ids of `search` with `args`.
+fn sorted_ids(a: &Almanac, args: Value) -> Vec<String> {
+    let mut v: Vec<String> = ids(&a.tool("search", args).ok())
+        .into_iter()
+        .map(String::from)
+        .collect();
+    v.sort();
+    v
+}
+
+fn sorted(v: &[&str]) -> Vec<String> {
+    let mut v: Vec<String> = v.iter().map(|s| s.to_string()).collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn status_epistemic_writer_and_cites_filter_memories() {
+    let a = Almanac::new();
+    let (ev, stated) = a.remember("foo 用户说的");
+    let (_, gone) = a.remember("foo 撤回的");
+    a.tool("retract", json!({"memory": gone, "reason": "记错了"}))
+        .ok();
+    let a = a.env("ALMANAC_WRITER", "other");
+    let rec = a
+        .tool(
+            "record",
+            json!({
+                "evidence": [{"ref": "c", "excerpt": "跑了 foo", "source": {"type": "command", "command": "foo", "exit_code": 0}}],
+                "memories": [{"text": "foo 推断的", "scope": "global", "epistemic": "inferred", "evidence": ["c"]}]
+            }),
+        )
+        .ok();
+    let inferred = rec["memories"][0]["id"].as_str().unwrap();
+    let q = |extra: Value| {
+        let mut args = json!({"query": "foo"});
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        sorted_ids(&a, args)
+    };
+
+    assert_eq!(q(json!({"status": ["retracted"]})), sorted(&[&gone]));
+    assert_eq!(
+        q(json!({"status": ["active", "retracted"]})),
+        sorted(&[&stated, &gone, inferred])
+    );
+    assert_eq!(q(json!({"epistemic": ["inferred"]})), sorted(&[inferred]));
+    assert_eq!(
+        q(json!({"epistemic": ["user_stated", "observed"]})),
+        sorted(&[&stated])
+    );
+    assert_eq!(q(json!({"writer": "other"})), sorted(&[inferred]));
+    assert_eq!(q(json!({"writer": "test"})), sorted(&[&stated]));
+    assert_eq!(q(json!({"cites": ev})), sorted(&[&stated]));
+    assert_eq!(q(json!({"cites": "ev_nope"})), sorted(&[]));
+    // Without a query the filters still apply.
+    assert_eq!(
+        sorted_ids(&a, json!({"status": ["retracted"]})),
+        sorted(&[&gone])
+    );
+
+    for bad in [
+        json!({"status": ["gone"]}),
+        json!({"status": "active"}),
+        json!({"epistemic": ["guessed"]}),
+    ] {
+        a.tool("search", bad).err("INVALID_ARGS");
+    }
+}
+
+fn hit<'a>(r: &'a Value, id: &str) -> &'a Value {
+    r["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["id"] == id)
+        .unwrap_or_else(|| panic!("{id} not in {r}"))
+}
+
+#[test]
+fn evidence_search_returns_evidence_hits_across_the_store() {
+    let d = tempfile::tempdir().unwrap();
+    let a = Almanac::new();
+    let (conv, mem) = a.remember("构建 用 cargo");
+    let long = "构建".repeat(150);
+    let rec = a
+        .tool(
+            "record",
+            json!({
+                "evidence": [
+                    {"ref": "w", "excerpt": long, "source": {"type": "web", "url": "https://example.com"}},
+                    {"ref": "c", "excerpt": "无关的 输出", "source": {"type": "command", "command": "ls", "exit_code": 0}}
+                ],
+                "memories": [{"text": "网页说 构建", "scope": "project", "evidence": ["w", "c"]}],
+                "project": d.path().to_str().unwrap()
+            }),
+        )
+        .ok();
+    let web = rec["evidence"][0]["id"].as_str().unwrap();
+    let cmd = rec["evidence"][1]["id"].as_str().unwrap();
+    let web_mem = rec["memories"][0]["id"].as_str().unwrap();
+
+    // Another project's evidence is found too: evidence search is store-wide.
+    let r = a
+        .tool("search", json!({"kind": "evidence", "query": "构建"}))
+        .ok();
+    let mut got = ids(&r);
+    got.sort();
+    assert_eq!(got, sorted(&[&conv, web]));
+    let h = hit(&r, web);
+    assert_eq!(h["kind"], "evidence");
+    assert_eq!(h["source_type"], "web");
+    assert_eq!(h["excerpt"].as_str().unwrap().chars().count(), 200);
+    assert!(long.starts_with(h["excerpt"].as_str().unwrap()));
+    assert_eq!(h["truncated"], true);
+    assert_eq!(h["cited_by"], json!([web_mem]));
+    assert!(h["score"].as_f64().unwrap() > 0.0, "{h}");
+    assert_eq!(h["matched_terms"], json!(["构建"]));
+    let c = hit(&r, &conv);
+    assert_eq!(c["excerpt"], "记住：构建 用 cargo");
+    assert_eq!(c["truncated"], false);
+    assert_eq!(c["cited_by"], json!([mem]));
+
+    // No query: newest first, score 0.
+    let r = a.tool("search", json!({"kind": "evidence"})).ok();
+    assert_eq!(ids(&r).len(), 3);
+    assert_eq!(ids(&r)[2], conv.as_str());
+    assert_eq!(r["hits"][0]["score"], 0.0);
+    assert_eq!(r["hits"][0]["matched_terms"], json!([]));
+
+    assert_eq!(
+        sorted_ids(
+            &a,
+            json!({"kind": "evidence", "source_type": ["command", "conversation"]})
+        ),
+        sorted(&[cmd, &conv])
+    );
+    assert_eq!(
+        sorted_ids(
+            &a,
+            json!({"kind": "evidence", "query": "构建", "source_type": ["web"], "limit": 5, "project": d.path().to_str().unwrap()})
+        ),
+        sorted(&[web])
+    );
+}
+
+#[test]
+fn memory_only_and_evidence_only_args_are_rejected_across_kinds() {
+    let a = Almanac::new();
+    for (k, v) in [
+        ("scope", json!("global")),
+        ("all", json!(false)),
+        ("status", json!(["active"])),
+        ("epistemic", json!(["observed"])),
+        ("writer", json!("test")),
+        ("cites", json!("ev_x")),
+        ("stale_only", json!(false)),
+    ] {
+        let mut args = json!({"kind": "evidence"});
+        args[k] = v;
+        a.tool("search", args).err("INVALID_ARGS");
+    }
+    for args in [
+        json!({"source_type": ["web"]}),
+        json!({"kind": "memory", "source_type": ["web"]}),
+        json!({"kind": "evidence", "source_type": ["email"]}),
+        json!({"kind": "both"}),
+    ] {
+        a.tool("search", args).err("INVALID_ARGS");
+    }
+    a.tool("search", json!({"kind": "memory"})).ok();
+    a.tool("search", json!({"stale_only": false})).ok();
+}
+
+#[test]
+fn source_types_follow_current_evidence() {
+    let a = Almanac::new();
+    let (_, mem) = a.remember("foo 构建");
+    let web = a
+        .tool(
+            "record",
+            json!({"evidence": [{"ref": "w", "excerpt": "网页 foo", "source": {"type": "web", "url": "https://example.com"}}]}),
+        )
+        .ok()["evidence"][0]["id"]
+        .clone();
+    a.tool("corroborate", json!({"memory": mem, "evidence": [web]}))
+        .ok();
+    let r = a.tool("search", json!({"query": "foo"})).ok();
+    assert_eq!(
+        hit(&r, &mem)["source_types"],
+        json!(["conversation", "web"])
+    );
+
+    let rec = a
+        .tool(
+            "record",
+            json!({"memories": [{"text": "foo 只看网页", "scope": "global", "evidence": [web], "supersedes": [mem]}]}),
+        )
+        .ok();
+    let new = rec["memories"][0]["id"].as_str().unwrap();
+    let r = a.tool("search", json!({"query": "foo"})).ok();
+    assert_eq!(ids(&r), [new]);
+    assert_eq!(r["hits"][0]["source_types"], json!(["web"]));
+}
+
+/// Runs git in `dir` with a fixed identity.
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let o = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "git {args:?}: {o:?}");
+}
+
+#[test]
+fn alias_hint_names_projects_sharing_the_root_commit_until_aliased() {
+    let base = tempfile::tempdir().unwrap();
+    let (old, new) = (base.path().join("old"), base.path().join("new"));
+    std::fs::create_dir(&old).unwrap();
+    git(&old, &["init", "-q"]);
+    git(&old, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    git(
+        &old,
+        &["remote", "add", "origin", "https://github.com/x/old"],
+    );
+    git(base.path(), &["clone", "-q", "old", "new"]);
+    git(
+        &new,
+        &["remote", "set-url", "origin", "https://github.com/x/new"],
+    );
+
+    let a = Almanac::new();
+    a.tool(
+        "record",
+        json!({
+            "evidence": [{"ref": "e", "excerpt": "记住：foo", "source": {"type": "conversation"}}],
+            "memories": [{"text": "foo", "scope": "project", "evidence": ["e"]}],
+            "project": old.to_str().unwrap()
+        }),
+    )
+    .ok();
+    let search = |dir: &std::path::Path, extra: Value| {
+        let mut args = json!({"project": dir.to_str().unwrap()});
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        a.tool("search", args).ok()
+    };
+
+    let want = json!({"project": "github.com/x/new", "same_root_as": ["github.com/x/old"]});
+    assert_eq!(search(&new, json!({}))["alias_hint"], want);
+    assert_eq!(search(&new, json!({"scope": "global"}))["alias_hint"], want);
+    assert_eq!(
+        search(&new, json!({"kind": "evidence"}))["alias_hint"],
+        want
+    );
+    assert!(search(&old, json!({})).get("alias_hint").is_none());
+
+    let o = a.run(
+        &["project", "alias", "github.com/x/old", "github.com/x/new"],
+        None,
+    );
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(search(&new, json!({})).get("alias_hint").is_none());
+}
