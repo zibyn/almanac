@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 pub struct Almanac {
     pub home: tempfile::TempDir,
     env: Vec<(String, String)>,
+    cwd: Option<PathBuf>,
 }
 
 pub struct Out {
@@ -62,13 +63,23 @@ impl Almanac {
             ("ALMANAC_HOME".into(), home.path().to_str().unwrap().into()),
             ("ALMANAC_WRITER".into(), "test".into()),
         ];
-        Almanac { home, env }
+        Almanac {
+            home,
+            env,
+            cwd: None,
+        }
     }
 
     /// Sets (or overrides) an environment variable for every later run.
     pub fn env(mut self, k: &str, v: &str) -> Self {
         self.unset_mut(k);
         self.env.push((k.into(), v.into()));
+        self
+    }
+
+    /// Runs the binary in `dir` instead of the test process's cwd.
+    pub fn cwd(mut self, dir: &std::path::Path) -> Self {
+        self.cwd = Some(dir.to_path_buf());
         self
     }
 
@@ -83,7 +94,11 @@ impl Almanac {
 
     /// Runs `almanac <args…>`, feeding `stdin` if given.
     pub fn run(&self, args: &[&str], stdin: Option<&str>) -> Out {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_almanac"))
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_almanac"));
+        if let Some(d) = &self.cwd {
+            cmd.current_dir(d);
+        }
+        let mut child = cmd
             .args(args)
             .env_clear()
             .envs(self.env.iter().cloned())

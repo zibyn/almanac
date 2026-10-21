@@ -10,7 +10,6 @@ use serde_json::{Value, json};
 pub struct Args {
     memory: String,
     reason: String,
-    #[allow(dead_code)]
     project: Option<String>,
 }
 
@@ -20,15 +19,19 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     }
     // shortcut: `reason` is not scanned for secrets yet; add it when the secret-check ticket lands.
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
-    let state = super::load()?;
-    super::check_replaceable(&state, &args.memory)?;
-    let tx = Tx::new(
-        writer,
-        vec![Event::Retracted {
-            memory: args.memory.clone(),
-            reason: args.reason,
-        }],
-    );
-    crate::log::append(&crate::log::home(), &tx).map_err(super::io_error)?;
-    Ok(json!({ "memory": args.memory, "status": "retracted" }))
+    let project = crate::project::resolve(args.project.as_deref())?;
+    let memory = args.memory.clone();
+    crate::log::write(&crate::log::home(), |state| {
+        super::check_replaceable(state, &memory)?;
+        let mut tx = Tx::new(
+            writer,
+            vec![Event::Retracted {
+                memory: args.memory,
+                reason: args.reason,
+            }],
+        );
+        tx.git_commit = project.head;
+        Ok((Some(tx), ()))
+    })?;
+    Ok(json!({ "memory": memory, "status": "retracted" }))
 }

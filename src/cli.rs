@@ -9,6 +9,9 @@ pub fn run(args: Vec<String>) -> i32 {
         eprintln!("INVALID_ARGS：用法 almanac <命令> [--json '<参数>' | --json -]");
         return 1;
     };
+    if cmd == "project" {
+        return crate::alias::run(rest);
+    }
     if cmd == "remind" {
         return crate::remind::run();
     }
@@ -16,6 +19,7 @@ pub fn run(args: Vec<String>) -> i32 {
         eprintln!("INVALID_ARGS：未知命令 {cmd}");
         return 1;
     }
+    crate::log::warn_if_synced(&crate::log::home());
     let result = tool_args(rest).and_then(|json| crate::tools::call(cmd, &json));
     match result {
         Ok(v) => {

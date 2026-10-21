@@ -12,20 +12,18 @@ use std::collections::{HashMap, HashSet};
 pub struct Args {
     evidence: Option<Vec<EvidenceIn>>,
     memories: Option<Vec<MemoryIn>>,
-    #[allow(dead_code)]
     project: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EvidenceIn {
+pub(super) struct EvidenceIn {
     #[serde(rename = "ref")]
     local_ref: Option<String>,
     excerpt: String,
     source: SourceIn,
 }
 
-// shortcut: no `file` yet; it arrives with #36.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum SourceIn {
@@ -43,11 +41,15 @@ enum SourceIn {
         cwd: Option<String>,
         exit_code: i64,
     },
+    File {
+        path: String,
+        line: Option<u64>,
+    },
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MemoryIn {
+pub(super) struct MemoryIn {
     text: String,
     /// A string, not an enum, so a bad value is `SCOPE_INVALID` rather than `INVALID_ARGS`.
     scope: String,
@@ -77,34 +79,36 @@ impl Epistemic {
 }
 
 pub fn run(args: Args) -> Result<Value, ToolError> {
-    if args.evidence.as_ref().is_none_or(Vec::is_empty)
-        && args.memories.as_ref().is_none_or(Vec::is_empty)
-    {
+    let evidence = args.evidence.unwrap_or_default();
+    let memories = args.memories.unwrap_or_default();
+    if evidence.is_empty() && memories.is_empty() {
         return Err(super::missing_field("evidence 或 memories"));
     }
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
-    let state = super::load()?;
-    let at = crate::model::now();
-    let (events, out) = build(args, &state, &writer, &at)?;
-    // A pure retry adds nothing, so it writes nothing.
-    if !events.is_empty() {
-        let mut tx = Tx::new(writer, events);
-        tx.at = at;
-        crate::log::append(&crate::log::home(), &tx).map_err(super::io_error)?;
+    let project = crate::project::resolve(args.project.as_deref())?;
+    let home = crate::log::home();
+    let (out, checks) = crate::log::write(&home, |state| {
+        build(state, writer, &project, evidence, memories)
+    })?;
+    // The cache is a deletable local observation; failing to write it must not fail a committed write.
+    if let Err(e) = crate::source_check::store(&home, checks) {
+        eprintln!("almanac: failed to write check cache: {e}");
     }
     Ok(out)
 }
 
-/// Runs every check and returns the events to write plus the response; writes nothing.
-/// `corroborate` reuses it for inline evidence.
+pub(super) type Checks = Vec<(String, crate::source_check::Check)>;
+
+/// Runs under the write lock against freshly replayed state (spec ch. 2). `corroborate` reuses
+/// it for inline evidence.
 pub(super) fn build(
-    args: Args,
     state: &State,
-    writer: &Writer,
-    at: &str,
-) -> Result<(Vec<Event>, Value), ToolError> {
-    let evidence = args.evidence.unwrap_or_default();
-    let memories = args.memories.unwrap_or_default();
+    writer: Writer,
+    project: &crate::project::Project,
+    evidence: Vec<EvidenceIn>,
+    memories: Vec<MemoryIn>,
+) -> Result<(Option<Tx>, (Value, Checks)), ToolError> {
+    let at = crate::model::now();
     let mut events = vec![];
 
     // ref or id → (id, source type)
@@ -121,6 +125,8 @@ pub(super) fn build(
         .collect();
     let mut refs = HashSet::new();
     let mut ev_out = vec![];
+    // New file evidence to compare against disk once structural checks pass: (id, path, excerpt).
+    let mut file_checks = vec![];
     for e in evidence {
         if e.excerpt.len() > 4096 {
             return Err(ToolError::new(
@@ -134,6 +140,7 @@ pub(super) fn build(
         {
             return Err(ToolError::invalid_args(format!("ref {r} 在本次调用中重复")));
         }
+        let mut file_path = None;
         let source = match e.source {
             SourceIn::Conversation {
                 session,
@@ -158,7 +165,7 @@ pub(super) fn build(
                         "web 来源的 url 必须是 http 或 https：{url}"
                     )));
                 }
-                json!({ "type": "web", "url": url, "fetched_at": fetched_at.unwrap_or_else(|| at.to_string()) })
+                json!({ "type": "web", "url": url, "fetched_at": fetched_at.unwrap_or_else(|| at.clone()) })
             }
             SourceIn::Command {
                 command,
@@ -169,6 +176,15 @@ pub(super) fn build(
                     json!({ "type": "command", "command": command, "exit_code": exit_code });
                 if let Some(v) = cwd {
                     s["cwd"] = json!(v);
+                }
+                s
+            }
+            SourceIn::File { path, line } => {
+                crate::source_check::check_path(&path)?;
+                file_path = Some(path.clone());
+                let mut s = json!({ "type": "file", "project": project.id, "path": path });
+                if let Some(v) = line {
+                    s["line"] = json!(v);
                 }
                 s
             }
@@ -187,6 +203,9 @@ pub(super) fn build(
                 (new.id.clone(), false)
             }
         };
+        if let Some(path) = file_path {
+            file_checks.push((id.clone(), path, new.excerpt.clone()));
+        }
         let mut out = json!({ "id": id, "deduped": deduped });
         if let Some(r) = &e.local_ref {
             out["ref"] = json!(r);
@@ -198,12 +217,10 @@ pub(super) fn build(
         }
     }
 
-    let mut mem_out = vec![];
-    for m in memories {
+    // Structural checks on memories, before the file comparison and dedup (spec ch. 3).
+    for m in &memories {
         match m.scope.as_str() {
-            "global" => {}
-            // shortcut: project scope arrives with #36.
-            "project" => return Err(ToolError::invalid_args("scope project 尚未实现")),
+            "global" | "project" => {}
             other => {
                 return Err(ToolError::new(
                     "SCOPE_INVALID",
@@ -224,12 +241,30 @@ pub(super) fn build(
             return Err(ToolError::new("NO_EVIDENCE", "记忆的 evidence 为空")
                 .hint("每条记忆至少引用一条证据；用户说「记住 X」时，这句话本身就是证据"));
         }
+        if let Some(r) = m.evidence.iter().find(|r| !known.contains_key(*r)) {
+            return Err(ToolError::new(
+                "EVIDENCE_NOT_FOUND",
+                format!("证据 {r} 不存在"),
+            ));
+        }
+    }
+
+    // Spec ch. 3: compared after structural checks, before dedup; even evidence deduped is compared.
+    let mut checks = vec![];
+    for (id, path, excerpt) in file_checks {
+        checks.push((
+            id,
+            crate::source_check::check_file(&project.root, &path, &excerpt)?,
+        ));
+    }
+
+    let group = state.alias_group(&project.id);
+    let mut mem_out = vec![];
+    for m in memories {
         let mut cited = vec![];
         let mut all_conversation = true;
         for r in &m.evidence {
-            let (id, ty) = known
-                .get(r)
-                .ok_or_else(|| ToolError::new("EVIDENCE_NOT_FOUND", format!("证据 {r} 不存在")))?;
+            let (id, ty) = &known[r];
             all_conversation &= ty == "conversation";
             // Two refs may name one merged evidence; cite it once.
             if !cited.contains(id) {
@@ -243,11 +278,13 @@ pub(super) fn build(
             Epistemic::Inferred
         });
         let supersedes = m.supersedes.unwrap_or_default();
-        // Spec ch. 3 「重复」: runs before any `supersedes` check, so a retried supersession dedups.
-        // shortcut: global scope only; #36 extends the match to the project alias group.
+        let project_scope = m.scope == "project";
+        // Spec ch. 3 「重复」: same scope (project scope by alias group); runs before any `supersedes` check,
+        // so a retried supersession dedups.
         let text = crate::model::normalize(&m.text);
         if let Some((old, _)) = state.memories.values().find(|(old, _)| {
-            old.scope == "global"
+            old.scope == m.scope
+                && (!project_scope || old.project.as_ref().is_some_and(|p| group.contains(p)))
                 && state.status(&old.id) == "active"
                 && crate::model::normalize(&old.text) == text
         }) {
@@ -278,16 +315,26 @@ pub(super) fn build(
         events.push(Event::MemoryRecorded(Memory {
             id,
             text: m.text,
-            scope: "global".into(),
-            project: None,
-            root_commit: None,
+            scope: m.scope,
+            project: project_scope.then(|| project.id.clone()),
+            root_commit: project_scope.then(|| project.root_commit.clone()).flatten(),
             epistemic: epistemic.as_str().into(),
             evidence: cited,
             supersedes,
         }));
     }
 
-    Ok((events, json!({ "evidence": ev_out, "memories": mem_out })))
+    // A pure retry adds nothing, so it writes nothing.
+    let tx = (!events.is_empty()).then(|| {
+        let mut tx = Tx::new(writer, events);
+        tx.at = at;
+        tx.git_commit = project.head.clone();
+        tx
+    });
+    Ok((
+        tx,
+        (json!({ "evidence": ev_out, "memories": mem_out }), checks),
+    ))
 }
 
 fn source_type(source: &Value) -> String {

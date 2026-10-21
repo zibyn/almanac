@@ -5,6 +5,8 @@ use crate::state::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+type Cache = std::collections::HashMap<String, crate::source_check::Check>;
+
 const MAX_IDS: usize = 20;
 
 #[derive(Deserialize)]
@@ -27,19 +29,20 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         return Err(ToolError::invalid_args("ids 至少要有 1 个"));
     }
     let s = super::load()?;
+    let cache = crate::source_check::load_cache(&crate::log::home());
     let records: Vec<Value> = args
         .ids
         .iter()
         .map(|id| {
-            memory(&s, id)
-                .or_else(|| evidence(&s, id, true))
+            memory(&s, &cache, id)
+                .or_else(|| evidence(&s, &cache, id, true))
                 .unwrap_or_else(|| json!({ "id": id, "error": "NOT_FOUND" }))
         })
         .collect();
     Ok(json!({ "records": records }))
 }
 
-fn memory(s: &State, id: &str) -> Option<Value> {
+fn memory(s: &State, cache: &Cache, id: &str) -> Option<Value> {
     let (m, recorded) = s.memories.get(id)?;
     let mut v = json!({
         "id": m.id,
@@ -49,7 +52,7 @@ fn memory(s: &State, id: &str) -> Option<Value> {
         "epistemic": m.epistemic,
         "status": s.status(id),
         "recorded": recorded,
-        "evidence": s.current_evidence(id).iter().filter_map(|e| evidence(s, e, false)).collect::<Vec<_>>(),
+        "evidence": s.current_evidence(id).iter().filter_map(|e| evidence(s, cache, e, false)).collect::<Vec<_>>(),
         "supersedes": m.supersedes,
         "superseded_by": s.superseded_by.get(id).cloned().unwrap_or_default(),
         "corroborations": s.corroborations.get(id).into_iter().flatten()
@@ -68,7 +71,7 @@ fn memory(s: &State, id: &str) -> Option<Value> {
 }
 
 /// `with_cited_by` is false when nested inside a memory.
-fn evidence(s: &State, id: &str, with_cited_by: bool) -> Option<Value> {
+fn evidence(s: &State, cache: &Cache, id: &str, with_cited_by: bool) -> Option<Value> {
     let (e, recorded) = s.evidence.get(id)?;
     let mut v = json!({
         "id": e.id,
@@ -76,7 +79,7 @@ fn evidence(s: &State, id: &str, with_cited_by: bool) -> Option<Value> {
         "excerpt": e.excerpt,
         "source": e.source,
         "recorded": recorded,
-        "check": null,
+        "check": cache.get(id).map(|c| json!({ "result": c.result, "at": c.at })),
     });
     if with_cited_by {
         v["cited_by"] = json!(s.cited_by.get(id).cloned().unwrap_or_default());

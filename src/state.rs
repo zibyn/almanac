@@ -1,7 +1,7 @@
 //! Derived state (spec ch. 1): a pure function of the transaction sequence. No I/O.
 
 use crate::model::{Event, Evidence, Memory, Recorded, Tx};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub struct State {
@@ -15,6 +15,8 @@ pub struct State {
     pub corroborations: HashMap<String, Vec<(Vec<String>, Recorded)>>,
     /// Memory id → retraction reason and the transaction that retracted it.
     pub retractions: HashMap<String, (String, Recorded)>,
+    /// Declared project alias pairs, in log order.
+    pub aliases: Vec<(String, String)>,
 }
 
 impl State {
@@ -54,11 +56,34 @@ impl State {
                         s.retractions
                             .insert(memory.clone(), (reason.clone(), tx.recorded()));
                     }
+                    Event::ProjectAliased { projects } => {
+                        if let [a, b] = &projects[..] {
+                            s.aliases.push((a.clone(), b.clone()));
+                        }
+                    }
                     Event::Unknown => {}
                 }
             }
         }
         s
+    }
+
+    /// The alias group of `project` (transitive closure of declared aliases), itself included.
+    /// Project-scope queries and memory dedup treat every identity in it as the same project.
+    pub fn alias_group(&self, project: &str) -> HashSet<String> {
+        let mut group = HashSet::from([project.to_string()]);
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for (a, b) in &self.aliases {
+                if group.contains(a) != group.contains(b) {
+                    group.insert(a.clone());
+                    group.insert(b.clone());
+                    grew = true;
+                }
+            }
+        }
+        group
     }
 
     /// Lifecycle status of a memory.
@@ -109,5 +134,26 @@ impl State {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::State;
+    use std::collections::HashSet;
+
+    #[test]
+    fn alias_groups_are_the_transitive_closure() {
+        let s = State {
+            aliases: [("a", "b"), ("x", "y"), ("c", "b")]
+                .map(|(p, q)| (p.to_string(), q.to_string()))
+                .into(),
+            ..State::default()
+        };
+        let set = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<HashSet<_>>();
+        assert_eq!(s.alias_group("a"), set(&["a", "b", "c"]));
+        assert_eq!(s.alias_group("c"), set(&["a", "b", "c"]));
+        assert_eq!(s.alias_group("y"), set(&["x", "y"]));
+        assert_eq!(s.alias_group("lonely"), set(&["lonely"]));
     }
 }
