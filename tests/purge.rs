@@ -150,6 +150,15 @@ fn purging_a_memory_tombstones_its_text_and_retraction_reason_and_keeps_structur
 }
 
 #[test]
+fn search_does_not_find_purged_text() {
+    let a = Almanac::new();
+    let (_, mem) = a.remember("独角兽密语");
+    a.run_tty(&["purge", &mem, "--reason", "r"], "y\nyes\n");
+    let hits = a.tool("search", json!({"query": "独角兽密语"})).ok()["hits"].clone();
+    assert_eq!(hits, json!([]));
+}
+
+#[test]
 fn a_purged_memory_is_terminal() {
     let a = Almanac::new();
     let (ev, mem) = a.remember("要清除的");
