@@ -58,6 +58,32 @@ pub struct Memory {
     pub supersedes: Vec<String>,
 }
 
+impl Evidence {
+    /// Spec ch. 1 「指纹」: source type + normalized locator + normalized excerpt. Derived, never logged.
+    pub fn fingerprint(&self) -> String {
+        let s = &self.source;
+        let locator: &[&str] = match s["type"].as_str() {
+            Some("conversation") => &["session"],
+            Some("file") => &["project", "path"],
+            Some("web") => &["url"],
+            Some("command") => &["command", "cwd"],
+            _ => &[],
+        };
+        let loc: Vec<&Value> = locator.iter().map(|k| &s[*k]).collect();
+        serde_json::json!([s["type"], loc, normalize(&self.excerpt)]).to_string()
+    }
+}
+
+/// Spec ch. 1: Unicode NFC, runs of whitespace folded to one space, trimmed.
+pub fn normalize(s: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    s.nfc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// `Recorded` in tool output: the transaction an object came from.
 #[derive(Debug, Clone, Serialize)]
 pub struct Recorded {
