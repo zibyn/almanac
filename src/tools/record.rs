@@ -1,7 +1,8 @@
 //! `record`: write evidence and/or memories atomically, as one transaction (spec ch. 3).
 
 use crate::error::ToolError;
-use crate::model::{Event, Evidence, Memory, Tx, new_id};
+use crate::model::{Event, Evidence, Memory, Tx, Writer, new_id};
+use crate::state::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -72,7 +73,11 @@ impl Epistemic {
 
 pub fn run(args: Args) -> Result<Value, ToolError> {
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
-    let state = super::load()?;
+    crate::log::write(&crate::log::home(), |state| build(state, writer, args))
+}
+
+/// Runs under the write lock against freshly replayed state (spec ch. 2).
+fn build(state: &State, writer: Writer, args: Args) -> Result<(Tx, Value), ToolError> {
     let mut events = vec![];
 
     // ref or id → (id, source type)
@@ -152,8 +157,10 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         }));
     }
 
-    crate::log::append(&crate::log::home(), &Tx::new(writer, events)).map_err(super::io_error)?;
-    Ok(json!({ "evidence": ev_out, "memories": mem_out }))
+    Ok((
+        Tx::new(writer, events),
+        json!({ "evidence": ev_out, "memories": mem_out }),
+    ))
 }
 
 fn source_type(source: &Value) -> String {
