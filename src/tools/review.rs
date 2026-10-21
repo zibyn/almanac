@@ -4,6 +4,7 @@
 use super::search::{Scope, current_project, in_scope, scope_group};
 use crate::error::ToolError;
 use crate::source_check as sc;
+use crate::state::Status;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -40,7 +41,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
     for id in ids {
         let text = &s.memories[id].0.text;
         match s.status(id) {
-            "active" => {
+            Status::Active => {
                 let flag = sc::stale(&s, &cache, id);
                 if !flag.is_null() {
                     stale.push(json!({
@@ -49,7 +50,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
                     }));
                 }
             }
-            "unsupported" => unsupported.push(json!({
+            Status::Unsupported => unsupported.push(json!({
                 "type": "unsupported", "memory": id, "text": text,
                 "actions": ["supersede", "retract"]
             })),

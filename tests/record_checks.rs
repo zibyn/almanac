@@ -279,12 +279,13 @@ fn omitted_epistemic_is_inferred_from_evidence_and_logged() {
                     mem("只有对话", &["u"]),
                     mem("对话加命令", &["u", "c"]),
                     mem("只有命令", &["c"]),
+                    {"text": "显式 null", "scope": "global", "epistemic": null, "evidence": ["u"]},
                     {"text": "显式", "scope": "global", "epistemic": "observed", "evidence": ["c"]}
                 ]
             }),
         )
         .ok();
-    assert_eq!(r["memories"].as_array().unwrap().len(), 4);
+    assert_eq!(r["memories"].as_array().unwrap().len(), 5);
     let logged: Vec<Value> = a.log()[0]["events"]
         .as_array()
         .unwrap()
@@ -298,6 +299,7 @@ fn omitted_epistemic_is_inferred_from_evidence_and_logged() {
             json!("user_stated"),
             json!("inferred"),
             json!("inferred"),
+            json!("user_stated"),
             json!("observed")
         ]
     );
@@ -320,5 +322,19 @@ fn web_url_must_be_http_or_https() {
         &a,
         json!({"evidence": [{"excerpt": "x", "source": {"type": "web", "url": "file:///etc/hosts"}}]}),
         "INVALID_ARGS",
+    );
+}
+
+#[test]
+fn unknown_epistemic_is_invalid_args() {
+    let a = Almanac::new();
+    let e = rejects(
+        &a,
+        json!({"evidence": [conv("e", "x")], "memories": [{"text": "t", "scope": "global", "epistemic": "guess", "evidence": ["e"]}]}),
+        "INVALID_ARGS",
+    );
+    assert_eq!(
+        e["message"],
+        "参数不合法：unknown variant `guess`, expected one of `observed`, `user_stated`, `inferred` at line 1 column 105"
     );
 }

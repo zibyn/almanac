@@ -2,9 +2,9 @@
 //! Never checks sources or touches the network; the stale flag comes from the local cache only.
 
 use crate::error::ToolError;
-use crate::model::{day, epistemic_label, source_type_label};
+use crate::model::{MemoryScope, day, epistemic_label, source_type_label};
 use crate::source_check as sc;
-use crate::state::State;
+use crate::state::{State, Status};
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -32,13 +32,13 @@ fn export(args: &[String]) -> Result<String, ToolError> {
     let home = crate::log::home()?;
     let s = crate::log::load(&home)?;
     let cache = sc::load_cache(&home);
-    let shown = |id: &&String| all || matches!(s.status(id), "active" | "unsupported");
+    let shown = |id: &&String| all || matches!(s.status(id), Status::Active | Status::Unsupported);
 
     // Section key: "" for global (sorts first), else the alias group's identities, sorted.
     let mut sections: BTreeMap<Vec<String>, Vec<&String>> = BTreeMap::new();
     for id in s.memories.keys().filter(shown) {
         let key = match &s.memories[id].0.project {
-            Some(p) if s.memories[id].0.scope == "project" => {
+            Some(p) if s.memories[id].0.scope == MemoryScope::Project => {
                 let mut g: Vec<String> = s.alias_group(p).into_iter().collect();
                 g.sort();
                 g
@@ -83,11 +83,13 @@ fn memory(out: &mut String, s: &State, cache: &sc::Cache, id: &str) {
         out.push_str(" · 网页来源");
     }
     match s.status(id) {
-        "unsupported" => out.push_str(" · 无据"),
-        "superseded" => write!(out, " · 被取代 → {}", s.superseded_by[id].join(", ")).unwrap(),
-        "retracted" => out.push_str(" · 撤回"),
-        "purged" => out.push_str(" · 已清除"),
-        _ => {}
+        Status::Unsupported => out.push_str(" · 无据"),
+        Status::Superseded => {
+            write!(out, " · 被取代 → {}", s.superseded_by[id].join(", ")).unwrap()
+        }
+        Status::Retracted => out.push_str(" · 撤回"),
+        Status::Purged => out.push_str(" · 已清除"),
+        Status::Active => {}
     }
     // Purge also tombstones the retraction reason (spec ch. 1), so both show the tombstone.
     let text = m.purged.as_ref().map_or(m.text.clone(), tombstone_line);

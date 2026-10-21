@@ -70,17 +70,93 @@ pub struct Memory {
     /// Empty once purged; `purged` then holds the tombstone.
     #[serde(default)]
     pub text: String,
-    pub scope: String,
+    pub scope: MemoryScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_commit: Option<String>,
-    pub epistemic: String,
+    pub epistemic: Epistemic,
     pub evidence: Vec<String>,
     #[serde(default)]
     pub supersedes: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purged: Option<Value>,
+}
+
+/// A memory's epistemic status (spec ch. 1). `Other` keeps a value from a later version (ADR 0002).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum Epistemic {
+    Observed,
+    UserStated,
+    Inferred,
+    Other(String),
+}
+
+impl Epistemic {
+    /// The values new writes accept.
+    pub const KNOWN: &'static [&'static str] = &["observed", "user_stated", "inferred"];
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Epistemic::Observed => "observed",
+            Epistemic::UserStated => "user_stated",
+            Epistemic::Inferred => "inferred",
+            Epistemic::Other(s) => s,
+        }
+    }
+}
+
+impl From<String> for Epistemic {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "observed" => Epistemic::Observed,
+            "user_stated" => Epistemic::UserStated,
+            "inferred" => Epistemic::Inferred,
+            _ => Epistemic::Other(s),
+        }
+    }
+}
+
+impl From<Epistemic> for String {
+    fn from(e: Epistemic) -> Self {
+        e.as_str().into()
+    }
+}
+
+/// A memory's scope (spec ch. 1). `Other` keeps a value from a later version (ADR 0002).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum MemoryScope {
+    Global,
+    Project,
+    Other(String),
+}
+
+impl MemoryScope {
+    pub fn as_str(&self) -> &str {
+        match self {
+            MemoryScope::Global => "global",
+            MemoryScope::Project => "project",
+            MemoryScope::Other(s) => s,
+        }
+    }
+}
+
+impl From<String> for MemoryScope {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "global" => MemoryScope::Global,
+            "project" => MemoryScope::Project,
+            _ => MemoryScope::Other(s),
+        }
+    }
+}
+
+impl From<MemoryScope> for String {
+    fn from(s: MemoryScope) -> Self {
+        s.as_str().into()
+    }
 }
 
 impl Evidence {
@@ -157,12 +233,12 @@ pub fn day(at: &str) -> &str {
 }
 
 /// Human label of an epistemic value, for the Markdown views; unknown values pass through.
-pub fn epistemic_label(e: &str) -> &str {
+pub fn epistemic_label(e: &Epistemic) -> &str {
     match e {
-        "observed" => "亲见",
-        "user_stated" => "用户陈述",
-        "inferred" => "推断",
-        other => other,
+        Epistemic::Observed => "亲见",
+        Epistemic::UserStated => "用户陈述",
+        Epistemic::Inferred => "推断",
+        Epistemic::Other(s) => s,
     }
 }
 
@@ -174,5 +250,26 @@ pub fn source_type_label(t: &str) -> &str {
         "web" => "网页",
         "command" => "命令输出",
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_values_round_trip_and_unknown_ones_are_kept() {
+        for k in Epistemic::KNOWN {
+            let e = Epistemic::from(k.to_string());
+            assert!(!matches!(e, Epistemic::Other(_)), "{k}");
+            assert_eq!(serde_json::to_value(&e).unwrap(), *k);
+        }
+        for k in ["global", "project"] {
+            let s = MemoryScope::from(k.to_string());
+            assert!(!matches!(s, MemoryScope::Other(_)), "{k}");
+            assert_eq!(serde_json::to_value(&s).unwrap(), k);
+        }
+        let e: Epistemic = serde_json::from_str(r#""future_value""#).unwrap();
+        assert_eq!(serde_json::to_string(&e).unwrap(), r#""future_value""#);
     }
 }

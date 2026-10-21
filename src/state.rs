@@ -3,6 +3,48 @@
 use crate::model::{Event, Evidence, Memory, Recorded, Tx};
 use std::collections::{HashMap, HashSet};
 
+/// A memory's lifecycle status (spec ch. 1 「记忆的状态」). Derived, never logged, so closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Active,
+    Superseded,
+    Retracted,
+    Unsupported,
+    Purged,
+}
+
+impl Status {
+    pub const ALL: [Status; 5] = [
+        Status::Active,
+        Status::Superseded,
+        Status::Retracted,
+        Status::Unsupported,
+        Status::Purged,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Active => "active",
+            Status::Superseded => "superseded",
+            Status::Retracted => "retracted",
+            Status::Unsupported => "unsupported",
+            Status::Purged => "purged",
+        }
+    }
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl serde::Serialize for Status {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
 #[derive(Default)]
 pub struct State {
     pub evidence: HashMap<String, (Evidence, Recorded)>,
@@ -87,18 +129,18 @@ impl State {
     }
 
     /// Lifecycle status of a memory: the first that holds, top down (spec ch. 1 「记忆的状态」).
-    pub fn status(&self, memory: &str) -> &'static str {
+    pub fn status(&self, memory: &str) -> Status {
         let evidence = self.current_evidence(memory);
         if self.memory_purged(memory) {
-            "purged"
+            Status::Purged
         } else if self.retractions.contains_key(memory) {
-            "retracted"
+            Status::Retracted
         } else if self.superseded_by.contains_key(memory) {
-            "superseded"
+            Status::Superseded
         } else if !evidence.is_empty() && evidence.iter().all(|e| self.evidence_purged(e)) {
-            "unsupported"
+            Status::Unsupported
         } else {
-            "active"
+            Status::Active
         }
     }
 
@@ -181,7 +223,7 @@ impl State {
                 continue;
             }
             for next in self.superseded_by.get(&m).into_iter().flatten().rev() {
-                if self.status(next) == "active" && !out.contains(next) {
+                if self.status(next) == Status::Active && !out.contains(next) {
                     out.push(next.clone());
                 }
                 todo.push(next.clone());
@@ -193,8 +235,26 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use super::State;
+    use super::{State, Status};
     use std::collections::HashSet;
+
+    #[test]
+    fn status_serializes_as_its_snake_case_name() {
+        let got: Vec<_> = Status::ALL
+            .iter()
+            .map(|s| serde_json::to_string(s).unwrap())
+            .collect();
+        assert_eq!(
+            got,
+            [
+                r#""active""#,
+                r#""superseded""#,
+                r#""retracted""#,
+                r#""unsupported""#,
+                r#""purged""#
+            ]
+        );
+    }
 
     #[test]
     fn alias_groups_are_the_transitive_closure() {

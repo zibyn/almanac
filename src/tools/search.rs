@@ -1,9 +1,9 @@
 //! `search`: lexical retrieval plus structured filters over memories or evidence (spec ch. 3, ch. 5).
 
 use crate::error::ToolError;
-use crate::model::Memory;
+use crate::model::{Epistemic, Memory, MemoryScope};
 use crate::source_check as sc;
-use crate::state::State;
+use crate::state::{State, Status};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::cmp::Reverse;
@@ -28,8 +28,6 @@ enum Kind {
     Evidence,
 }
 
-const STATUSES: &[&str] = &["active", "superseded", "retracted", "unsupported", "purged"];
-const EPISTEMICS: &[&str] = &["observed", "user_stated", "inferred"];
 const SOURCE_TYPES: &[&str] = &["conversation", "file", "web", "command"];
 const EXCERPT_CHARS: usize = 200;
 
@@ -107,8 +105,8 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
             "limit 为 {limit}，须在 1–{MAX_LIMIT} 之间"
         )));
     }
-    check_values("status", &args.status, STATUSES)?;
-    check_values("epistemic", &args.epistemic, EPISTEMICS)?;
+    check_values("status", &args.status, &Status::ALL.map(Status::as_str))?;
+    check_values("epistemic", &args.epistemic, Epistemic::KNOWN)?;
     check_values("source_type", &args.source_type, SOURCE_TYPES)?;
     let kind = args.kind.unwrap_or_default();
     check_kind(&args, kind)?;
@@ -170,7 +168,7 @@ fn memory_hits(
 ) -> Vec<Value> {
     let scope = args.scope.unwrap_or(Scope::Any);
     let all = args.all.unwrap_or(false);
-    let active = ["active".to_string()];
+    let active = [Status::Active.as_str().to_string()];
     let status = args.status.as_deref().unwrap_or(&active);
 
     // Structured filters come before scoring (spec ch. 5 「结构化过滤」).
@@ -178,11 +176,11 @@ fn memory_hits(
         .memories
         .values()
         .filter(|(m, recorded)| {
-            status.iter().any(|st| st == s.status(&m.id))
+            status.iter().any(|st| st == s.status(&m.id).as_str())
                 && args
                     .epistemic
                     .as_ref()
-                    .is_none_or(|e| e.contains(&m.epistemic))
+                    .is_none_or(|e| e.iter().any(|e| e == m.epistemic.as_str()))
                 && args
                     .writer
                     .as_ref()
@@ -245,8 +243,8 @@ pub(crate) fn scope_group(s: &State, current: Option<&crate::project::Project>) 
 /// The scope filter shared by `search`, `verify`, `review` and `context` (spec ch. 3 「作用域过滤」);
 /// `group` is the current project's alias group, unused when `all`.
 pub(crate) fn in_scope(m: &Memory, scope: Scope, all: bool, group: &HashSet<String>) -> bool {
-    match m.scope.as_str() {
-        "global" => scope != Scope::Project,
+    match m.scope {
+        MemoryScope::Global => scope != Scope::Project,
         _ => {
             scope != Scope::Global && (all || m.project.as_ref().is_some_and(|p| group.contains(p)))
         }

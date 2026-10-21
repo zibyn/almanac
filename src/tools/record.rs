@@ -1,9 +1,9 @@
 //! `record`: write evidence and/or memories atomically, as one transaction (spec ch. 3).
 
 use crate::error::ToolError;
-use crate::model::{Event, Evidence, Memory, Tx, Writer, new_id};
-use crate::state::State;
-use serde::Deserialize;
+use crate::model::{Epistemic, Event, Evidence, Memory, MemoryScope, Tx, Writer, new_id};
+use crate::state::{State, Status};
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
@@ -80,6 +80,7 @@ pub(super) struct MemoryIn {
     /// `INVALID_ARGS` / `MISSING_FIELD`.
     #[serde(default)]
     scope: String,
+    #[serde(default, deserialize_with = "known_epistemic")]
     epistemic: Option<Epistemic>,
     /// Absent is treated like empty: `NO_EVIDENCE`, whose hint helps more than `MISSING_FIELD`'s.
     #[serde(default)]
@@ -87,21 +88,11 @@ pub(super) struct MemoryIn {
     supersedes: Option<Vec<String>>,
 }
 
-#[derive(Deserialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-enum Epistemic {
-    Observed,
-    UserStated,
-    Inferred,
-}
-
-impl Epistemic {
-    fn as_str(self) -> &'static str {
-        match self {
-            Epistemic::Observed => "observed",
-            Epistemic::UserStated => "user_stated",
-            Epistemic::Inferred => "inferred",
-        }
+/// New writes accept only known values; replay keeps unknown ones (ADR 0002).
+fn known_epistemic<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Epistemic>, D::Error> {
+    match Option::<Epistemic>::deserialize(d)? {
+        Some(Epistemic::Other(s)) => Err(serde::de::Error::unknown_variant(&s, Epistemic::KNOWN)),
+        e => Ok(e),
     }
 }
 
@@ -324,7 +315,8 @@ pub(super) fn build(
             Epistemic::Inferred
         });
         let supersedes = m.supersedes.unwrap_or_default();
-        let project_scope = m.scope == "project";
+        let scope = MemoryScope::from(m.scope);
+        let project_scope = scope == MemoryScope::Project;
         let mem_project = if project_scope {
             Some(need_project()?)
         } else {
@@ -334,9 +326,9 @@ pub(super) fn build(
         // so a retried supersession dedups.
         let text = crate::model::normalize(&m.text);
         if let Some((old, _)) = state.memories.values().find(|(old, _)| {
-            old.scope == m.scope
+            old.scope == scope
                 && (!project_scope || old.project.as_ref().is_some_and(|p| group.contains(p)))
-                && state.status(&old.id) == "active"
+                && state.status(&old.id) == Status::Active
                 && crate::model::normalize(&old.text) == text
         }) {
             let cites = |ev: &String| {
@@ -362,15 +354,15 @@ pub(super) fn build(
             super::check_replaceable(state, old)?;
         }
         let id = new_id("mem");
-        let similar = crate::similarity::similar(state, &m.text, &m.scope, &group, &supersedes);
+        let similar = crate::similarity::similar(state, &m.text, &scope, &group, &supersedes);
         mem_out.push(json!({ "id": id, "deduped": false, "similar": similar }));
         events.push(Event::MemoryRecorded(Memory {
             id,
             text: m.text,
-            scope: m.scope,
+            scope,
             project: mem_project.map(|p| p.id.clone()),
             root_commit: mem_project.and_then(|p| p.root_commit.clone()),
-            epistemic: epistemic.as_str().into(),
+            epistemic,
             evidence: cited,
             supersedes,
             purged: None,

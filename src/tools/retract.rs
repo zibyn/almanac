@@ -2,6 +2,7 @@
 
 use crate::error::ToolError;
 use crate::model::{Event, Tx};
+use crate::state::Status;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -34,5 +35,5 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         tx.git_commit = project.head;
         Ok((Some(tx), ()))
     })?;
-    Ok(json!({ "memory": memory, "status": "retracted" }))
+    Ok(json!({ "memory": memory, "status": Status::Retracted }))
 }

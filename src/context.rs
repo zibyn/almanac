@@ -1,9 +1,9 @@
 //! `almanac context` (spec ch. 4): the memories injected at session start, as Markdown.
 //! Read-only and offline: stale flags come from the check cache alone. Never fails: exit 0 always.
 
-use crate::model::{day, epistemic_label};
+use crate::model::{MemoryScope, day, epistemic_label};
 use crate::source_check as sc;
-use crate::state::State;
+use crate::state::{State, Status};
 use crate::tools::search::{Scope, alias_hint, in_scope, scope_group};
 use std::cmp::Reverse;
 use std::io::Write;
@@ -43,14 +43,14 @@ fn render(args: &[String]) -> Result<Option<String>, String> {
     let mut project = vec![];
     let mut global = vec![];
     for (m, _) in s.memories.values() {
-        if s.status(&m.id) != "active"
+        if s.status(&m.id) != Status::Active
             || s.web_sourced(&m.id)
             || !in_scope(m, Scope::Any, false, &group)
         {
             continue;
         }
-        match m.scope.as_str() {
-            "global" => global.push(m.id.as_str()),
+        match m.scope {
+            MemoryScope::Global => global.push(m.id.as_str()),
             _ => project.push(m.id.as_str()),
         }
     }

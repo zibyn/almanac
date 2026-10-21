@@ -49,3 +49,24 @@ fn replay_ignores_unknown_fields_event_types_and_an_unterminated_last_line() {
     assert_eq!(g["records"][0]["kind"], "memory");
     assert_eq!(g["records"][1]["cited_by"], json!([mem]));
 }
+
+#[test]
+fn unknown_epistemic_and_scope_in_the_log_replay_and_show_as_is() {
+    let a = Almanac::new();
+    let (_, mem) = a.remember("用户喜欢 4 空格缩进");
+    let raw = a
+        .log_raw()
+        .replace("\"scope\":\"global\"", "\"scope\":\"future_scope\"")
+        .replace(
+            "\"epistemic\":\"user_stated\"",
+            "\"epistemic\":\"future_value\"",
+        );
+    std::fs::write(a.log_path(), raw).unwrap();
+
+    let g = a.tool("get", json!({"ids": [mem]})).ok();
+    assert_eq!(g["records"][0]["scope"], "future_scope");
+    assert_eq!(g["records"][0]["epistemic"], "future_value");
+    let s = a.tool("search", json!({"all": true})).ok();
+    assert_eq!(s["hits"][0]["scope"], "future_scope");
+    assert_eq!(s["hits"][0]["epistemic"], "future_value");
+}

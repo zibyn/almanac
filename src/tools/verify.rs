@@ -3,6 +3,7 @@
 use super::search::{Scope, current_project, in_scope, scope_group};
 use crate::error::ToolError;
 use crate::source_check as sc;
+use crate::state::Status;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -37,7 +38,7 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
                 .memories
                 .values()
                 .filter(|(m, _)| {
-                    s.status(&m.id) == "active" && in_scope(m, scope, args.all, &group)
+                    s.status(&m.id) == Status::Active && in_scope(m, scope, args.all, &group)
                 })
                 .map(|(m, _)| m.id.clone())
                 .collect();

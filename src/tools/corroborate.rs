@@ -3,7 +3,7 @@
 use super::record::{self, EvidenceIn};
 use crate::error::ToolError;
 use crate::model::{Event, Tx};
-use crate::state::State;
+use crate::state::{State, Status};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -55,7 +55,7 @@ fn build(
     project: &crate::project::Project,
 ) -> Result<(Option<Tx>, (Value, record::Checks)), ToolError> {
     let memory = &args.memory;
-    super::check_status(state, memory, &["active"])?;
+    super::check_status(state, memory, &[Status::Active])?;
     if args.evidence.is_empty() {
         return Err(ToolError::new("NO_EVIDENCE", "附证的 evidence 为空")
             .hint("至少给一条已有证据 id 或内联证据"));

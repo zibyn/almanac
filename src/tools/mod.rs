@@ -11,6 +11,7 @@ pub(crate) mod search;
 mod verify;
 
 use crate::error::ToolError;
+use crate::state::Status;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
@@ -65,11 +66,11 @@ fn missing_field(field: &str) -> ToolError {
 
 /// Spec ch. 1: only `active` or `unsupported` memories can be superseded or retracted.
 fn check_replaceable(s: &crate::state::State, id: &str) -> Result<(), ToolError> {
-    check_status(s, id, &["active", "unsupported"])
+    check_status(s, id, &[Status::Active, Status::Unsupported])
 }
 
 /// `MEMORY_NOT_FOUND` unless `id` exists, then `NOT_ACTIVE` unless its status is in `allowed`.
-fn check_status(s: &crate::state::State, id: &str, allowed: &[&str]) -> Result<(), ToolError> {
+fn check_status(s: &crate::state::State, id: &str, allowed: &[Status]) -> Result<(), ToolError> {
     check_exists(s, id)?;
     match s.status(id) {
         st if allowed.contains(&st) => Ok(()),
@@ -89,12 +90,12 @@ pub(crate) fn check_exists(s: &crate::state::State, id: &str) -> Result<(), Tool
 }
 
 /// `NOT_ACTIVE` for `id` in `status`; a superseded memory's hint names its active successors.
-fn not_active(s: &crate::state::State, id: &str, status: &str) -> ToolError {
+fn not_active(s: &crate::state::State, id: &str, status: Status) -> ToolError {
     let e = ToolError::new(
         "NOT_ACTIVE",
         format!("记忆 {id} 的状态是 {status}，不是生效"),
     );
-    if status == "superseded" {
+    if status == Status::Superseded {
         let next = s.active_successors(id).join("、");
         e.hint(format!("沿取代链对最新的生效后继操作：{next}"))
     } else {

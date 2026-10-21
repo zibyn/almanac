@@ -1,6 +1,7 @@
 //! Similarity for `record`'s `similar` soft hint (spec ch. 7 「相似度」).
 
-use crate::state::State;
+use crate::model::MemoryScope;
+use crate::state::{State, Status};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -9,7 +10,7 @@ use std::collections::HashSet;
 pub fn similar(
     state: &State,
     text: &str,
-    scope: &str,
+    scope: &MemoryScope,
     group: &HashSet<String>,
     supersedes: &[String],
 ) -> Value {
@@ -18,9 +19,10 @@ pub fn similar(
         .memories
         .values()
         .filter(|(m, _)| {
-            m.scope == scope
-                && (scope != "project" || m.project.as_ref().is_some_and(|p| group.contains(p)))
-                && state.status(&m.id) == "active"
+            m.scope == *scope
+                && (*scope != MemoryScope::Project
+                    || m.project.as_ref().is_some_and(|p| group.contains(p)))
+                && state.status(&m.id) == Status::Active
                 && !supersedes.contains(&m.id)
         })
         .filter_map(|(m, _)| Some((m, score(&new, &tokens(&m.text))?)))
