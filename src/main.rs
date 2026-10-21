@@ -2,6 +2,7 @@ mod alias;
 mod analyzer;
 mod cli;
 mod error;
+mod export;
 mod index;
 mod log;
 mod model;
