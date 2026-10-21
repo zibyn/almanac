@@ -295,6 +295,7 @@ fn memory_hit(s: &State, id: &str, score: f64, matched: Vec<String>) -> Value {
         "score": score,
         "matched_terms": matched,
     });
+    super::tombstone(&mut v, "text", &m.purged);
     if let Some(p) = &m.project {
         v["project"] = json!(p);
     }

@@ -12,6 +12,9 @@ pub fn run(args: Vec<String>) -> i32 {
     if cmd == "project" {
         return crate::alias::run(rest);
     }
+    if cmd == "purge" {
+        return crate::purge::run(rest);
+    }
     if cmd == "remind" {
         return crate::remind::run();
     }

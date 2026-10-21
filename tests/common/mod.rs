@@ -120,6 +120,42 @@ impl Almanac {
         }
     }
 
+    /// Runs `almanac <args…>` with stdin, stdout and stderr on a pseudo-terminal, typing `input`.
+    /// `stdout` is the whole terminal transcript (stderr and echoed input included, `\r\n` line ends).
+    // shortcut: drives the pty through util-linux script(1), so Linux only; switch to a pty crate if tests must run elsewhere.
+    pub fn run_tty(&self, args: &[&str], input: &str) -> Out {
+        let quote = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
+        let line: Vec<String> = std::iter::once(env!("CARGO_BIN_EXE_almanac"))
+            .chain(args.iter().copied())
+            .map(quote)
+            .collect();
+        let mut cmd = Command::new("script");
+        if let Some(d) = &self.cwd {
+            cmd.current_dir(d);
+        }
+        let mut child = cmd
+            .args(["-qefc", &line.join(" "), "/dev/null"])
+            .env_clear()
+            .envs(self.env.iter().cloned())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("script(1) from util-linux is needed for pty tests");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let o = child.wait_with_output().unwrap();
+        Out {
+            code: o.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n"),
+            stderr: String::from_utf8_lossy(&o.stderr).into(),
+        }
+    }
+
     /// Runs a tool: `almanac <tool> --json '<args>'`.
     pub fn tool(&self, tool: &str, args: Value) -> Out {
         self.run(&[tool, "--json", &args.to_string()], None)
