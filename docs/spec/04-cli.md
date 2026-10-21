@@ -166,7 +166,7 @@ almanac remind
 - stdin 为宿主 hook 的 JSON，只读 `session_id` 与 `stop_hook_active`。
 - `session_id` 用作文件名，必须是单个普通路径分量（不含 `/`，不是 `.`、`..`），否则不计数、无输出。
 - `stop_hook_active` 为 JSON 布尔值 `true`（本轮是 hook 促成的续跑）时，不计数、不提醒；其他值都按 false。
-- 按 `session_id` 计数，存于 `cache/remind/<session_id>`；每满 N 轮提醒一次，其余轮次无输出。计数文件丢了或内容损坏就从头计。
+- 按 `session_id` 计数，存于 `cache/remind/<session_id>`；每满 N 轮提醒一次，其余轮次无输出。计数文件丢了或内容损坏就从头计。尽力而为：计数不加锁，并发调用可能少计一轮，只会让提醒推迟。
 - N 取记忆库目录下 `config.toml` 的 `remind_every`，默认 15；为 0 时永不提醒。`config.toml` 不存在或没有这个键时取 15；文件读不了或值不是非负整数时也取 15，并在 stderr 警告一行。
 - 记忆库目录不存在时不计数、无输出（目录在而 `log/` 不在不算不存在）。
 
