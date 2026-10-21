@@ -5,6 +5,7 @@ mod log;
 mod model;
 mod project;
 mod remind;
+mod secrets;
 mod source_check;
 mod state;
 mod tools;
