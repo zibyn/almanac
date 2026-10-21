@@ -6,12 +6,20 @@ mod get;
 mod record;
 mod retract;
 mod search;
+mod verify;
 
 use crate::error::ToolError;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-const TOOLS: &[&str] = &["record", "get", "retract", "corroborate", "search"];
+const TOOLS: &[&str] = &[
+    "record",
+    "get",
+    "retract",
+    "corroborate",
+    "search",
+    "verify",
+];
 
 pub fn is_tool(name: &str) -> bool {
     TOOLS.contains(&name)
@@ -25,6 +33,7 @@ pub fn call(name: &str, args: &str) -> Result<Value, ToolError> {
         "retract" => retract::run(parse(args)?),
         "corroborate" => corroborate::run(parse(args)?),
         "search" => search::run(parse(args)?),
+        "verify" => verify::run(parse(args)?),
         _ => Err(ToolError::invalid_args(format!("未知工具 {name}"))),
     }
 }

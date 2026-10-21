@@ -5,7 +5,7 @@ use crate::state::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-type Cache = std::collections::HashMap<String, crate::source_check::Check>;
+use crate::source_check::{self as sc, Cache};
 
 const MAX_IDS: usize = 20;
 
@@ -13,7 +13,6 @@ const MAX_IDS: usize = 20;
 #[serde(deny_unknown_fields)]
 pub struct Args {
     ids: Vec<String>,
-    #[allow(dead_code)]
     project: Option<String>,
 }
 
@@ -29,7 +28,21 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         return Err(ToolError::invalid_args("ids 至少要有 1 个"));
     }
     let s = super::load()?;
-    let cache = crate::source_check::load_cache(&crate::log::home());
+    // Lazy check (spec ch. 3): file evidence the returned memories currently cite; no network.
+    let cur = crate::project::resolve(args.project.as_deref()).ok();
+    let cited: Vec<String> = args
+        .ids
+        .iter()
+        .filter(|id| s.memories.contains_key(*id))
+        .flat_map(|id| s.current_evidence(id))
+        .collect();
+    let (cache, _, _) = sc::refresh(
+        &crate::log::home(),
+        &s,
+        sc::here(&s, cur.as_ref()).as_ref(),
+        cited.iter().map(String::as_str),
+        &["file"],
+    );
     let records: Vec<Value> = args
         .ids
         .iter()
@@ -59,7 +72,7 @@ fn memory(s: &State, cache: &Cache, id: &str) -> Option<Value> {
             .map(|(ev, recorded)| json!({ "evidence": ev, "recorded": recorded }))
             .collect::<Vec<_>>(),
         "retraction": s.retractions.get(id).map(|(reason, recorded)| json!({ "reason": reason, "recorded": recorded })),
-        "stale": null,
+        "stale": sc::stale(s, cache, id),
     });
     if let Some(p) = &m.project {
         v["project"] = json!(p);
