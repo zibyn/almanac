@@ -1,6 +1,8 @@
 mod alias;
+mod analyzer;
 mod cli;
 mod error;
+mod index;
 mod log;
 mod model;
 mod project;

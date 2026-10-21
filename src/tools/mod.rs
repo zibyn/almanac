@@ -3,12 +3,13 @@
 
 mod get;
 mod record;
+mod search;
 
 use crate::error::ToolError;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-const TOOLS: &[&str] = &["record", "get"];
+const TOOLS: &[&str] = &["record", "get", "search"];
 
 pub fn is_tool(name: &str) -> bool {
     TOOLS.contains(&name)
@@ -19,6 +20,7 @@ pub fn call(name: &str, args: &str) -> Result<Value, ToolError> {
     match name {
         "record" => record::run(parse(args)?),
         "get" => get::run(parse(args)?),
+        "search" => search::run(parse(args)?),
         _ => Err(ToolError::invalid_args(format!("未知工具 {name}"))),
     }
 }
