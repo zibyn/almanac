@@ -43,6 +43,8 @@ fn marketplace_entry_points_at_the_shared_plugin() {
     let manifest = read_json("plugins/almanac/.claude-plugin/plugin.json");
     assert_eq!(manifest["name"], entry["name"]);
     assert!(manifest.get("mcpServers").is_none(), "插件不含 MCP");
+    // CC 按 version 判断更新，随 crate 一起递增
+    assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]
@@ -52,12 +54,9 @@ fn package_json_has_only_pi_key_with_existing_paths() {
     assert_eq!(obj.keys().collect::<Vec<_>>(), ["pi"]);
     assert_eq!(
         p["pi"],
-        json!({ "skills": ["./plugins/almanac/skills"], "extensions": ["./plugins/almanac/pi/almanac.ts"] })
+        json!({ "skills": ["./plugins/almanac/skills"], "extensions": ["./pi/almanac.ts"] })
     );
-    for path in [
-        "./plugins/almanac/skills",
-        "./plugins/almanac/pi/almanac.ts",
-    ] {
+    for path in ["./plugins/almanac/skills", "./pi/almanac.ts"] {
         assert!(root().join(path).exists(), "{path}");
     }
 }

@@ -18,14 +18,14 @@ plugins/almanac/
   .claude-plugin/plugin.json         CC 与 Codex 共用的 manifest
   skills/almanac/SKILL.md            全仓唯一一份
   hooks/hooks.json                   会话开始注入与写入提醒（CC 与 Codex）
-  pi/almanac.ts                      Pi 扩展（同上）
+pi/almanac.ts                        Pi 扩展（同上）；放在插件目录外，改它不让 Codex 重新信任
 package.json                         只为 Pi：仅有 "pi" 键
 ```
 
 - 不用符号链接：Codex 安装时会丢弃符号链接。
 - 「CC 与 Codex 共用一个插件目录」已按源码确认（`openai/codex@3f31c0a`）：Codex 依次找 `plugin.json`、`.codex-plugin/plugin.json`、`.claude-plugin/plugin.json`，marketplace 也读 `.claude-plugin/marketplace.json`，默认读 `skills/` 与 `hooks/hooks.json`；尚待真实宿主端到端实测。不行时的回退方案：另建 `.codex-plugin` 目录并复制一份 SKILL.md，加 CI 检查两份内容一致。
 - 插件里只有 SKILL.md、会话开始注入与写入提醒，不含 MCP 配置。
-- CC 按 `plugin.json` 的 `version` 判断插件是否有更新：插件目录有改动时须递增版本号，否则已安装的用户停在旧版。
+- CC 按 `plugin.json` 的 `version` 判断插件是否有更新：插件目录有改动时须递增版本号，否则已安装的用户停在旧版。版本策略：`plugin.json` 的 `version` 始终等于 crate 版本，每次发布一起递增（测试守住）。
 
 ### 安装
 
@@ -35,12 +35,12 @@ package.json                         只为 Pi：仅有 "pi" 键
 | Codex | `codex plugin marketplace add zibyn/almanac`，然后 `codex plugin add almanac@almanac` |
 | Pi | `pi install git:github.com/zibyn/almanac` |
 
-- Codex：装完后要到 `/hooks` 信任 almanac 的 `SessionStart` 与 `Stop` hook，安装说明里写明，不做绕过。没有信任时，只是少了会话开始注入或写入提醒。Codex 的信任钉住的是整个插件目录的内容哈希（`codex-rs/hooks/src/engine/plugin_fingerprint.rs`），不只是 `hooks.json`：插件目录里任何文件变化（含 SKILL.md、Pi 扩展）都要用户重新信任，所以插件目录要少改，安装说明写明更新后可能要重新信任。
+- Codex：装完后要到 `/hooks` 信任 almanac 的 `SessionStart` 与 `Stop` hook，安装说明里写明，不做绕过。没有信任时，只是少了会话开始注入或写入提醒。Codex 的信任钉住的是整个插件目录的内容哈希（`codex-rs/hooks/src/engine/plugin_fingerprint.rs`），不只是 `hooks.json`：插件目录里任何文件变化（含 SKILL.md）都要用户重新信任，所以插件目录要少改，安装说明写明更新后可能要重新信任。
 - 安装说明另写「人怎么看、怎么改」：看用 `almanac export`（第 4 章）；记东西就对智能体说「记住 X」；直接在终端操作时，给出 `ALMANAC_WRITER=human almanac record --json -`（heredoc 传参）与 `ALMANAC_WRITER=human almanac retract --json '{"memory":"mem_…","reason":"…"}'` 两个示例。不提供 `remember` / `forget` 之类的便捷命令。
 - Pi 的 git 来源不能指定子目录，一个仓库只能是一个包，所以用根目录的 `package.json`：
 
   ```json
-  { "pi": { "skills": ["./plugins/almanac/skills"], "extensions": ["./plugins/almanac/pi/almanac.ts"] } }
+  { "pi": { "skills": ["./plugins/almanac/skills"], "extensions": ["./pi/almanac.ts"] } }
   ```
 
 ## 会话开始注入
@@ -108,7 +108,7 @@ export default function (pi: ExtensionAPI) {
 ```
 
 - `resume`、`fork`、`reload` 不注入，与 CC / Codex 的 matcher 对应。
-- 已按 Pi 1.3.0（`earendil-works/pi@16f5f0a`）复核：`agent_before_settle` 返回 `{ entries, continue }`、`ctx.sessionManager.getSessionId()` 如上。`pi.exec` 不能传 stdin（子进程 stdin 固定为 ignore），所以 `remind` 用 `node:child_process` 的 `spawn` 写 stdin（上面的 `runWithStdin`）；实现见 `plugins/almanac/pi/almanac.ts`。
+- 已按 Pi 1.3.0（`earendil-works/pi@16f5f0a`）复核：`agent_before_settle` 返回 `{ entries, continue }`、`ctx.sessionManager.getSessionId()` 如上。`pi.exec` 不能传 stdin（子进程 stdin 固定为 ignore），所以 `remind` 用 `node:child_process` 的 `spawn` 写 stdin（上面的 `runWithStdin`）；实现见 `pi/almanac.ts`。
 - `agent_before_settle` 在中断、出错时也触发（`event.outcome` 为 `aborted` / `error`），只在 `completed` 时调 `remind`，与「用户中断时 Stop 不触发」对应。
 
 ## 写入提醒

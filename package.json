@@ -1,1 +1,1 @@
-{ "pi": { "skills": ["./plugins/almanac/skills"], "extensions": ["./plugins/almanac/pi/almanac.ts"] } }
+{ "pi": { "skills": ["./plugins/almanac/skills"], "extensions": ["./pi/almanac.ts"] } }
