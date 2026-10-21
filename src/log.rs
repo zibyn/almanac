@@ -150,11 +150,11 @@ pub fn lock(home: &Path) -> Result<WriteLock, ToolError> {
 }
 
 /// The write path (spec ch. 2 「本地并发」): lock, reopen the log, cut a torn last line, replay,
-/// let `build` check its preconditions against that fresh state and return the transaction,
-/// append it, fsync. `build` runs under the lock, so `Tx::new` stamps `at` while holding it.
+/// let `build` check its preconditions against that fresh state and return the transaction
+/// (`None`: nothing to write) plus the tool's output, append it, fsync. `build` runs under the lock, so `Tx::new` stamps `at` while holding it.
 pub fn write<T>(
     home: &Path,
-    build: impl FnOnce(&State) -> Result<(Tx, T), ToolError>,
+    build: impl FnOnce(&State) -> Result<(Option<Tx>, T), ToolError>,
 ) -> Result<T, ToolError> {
     let _lock = lock(home)?;
     // Reopened under the lock: purge replaces the file by rename (spec ch. 2).
@@ -183,6 +183,7 @@ pub fn write<T>(
         f.set_len(keep as u64).map_err(io_error)?;
     }
     let (tx, out) = build(&State::replay(&parsed.txs))?;
+    let Some(tx) = tx else { return Ok(out) };
     let mut line = serde_json::to_vec(&tx).map_err(|e| io_error(e.into()))?;
     line.push(b'\n');
     f.write_all(&line).map_err(io_error)?;

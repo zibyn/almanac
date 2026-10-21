@@ -5,7 +5,7 @@ use crate::model::{Event, Evidence, Memory, Tx, Writer, new_id};
 use crate::state::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,7 +25,7 @@ struct EvidenceIn {
     source: SourceIn,
 }
 
-// shortcut: only `conversation` so far; file/web/command arrive with #35/#36.
+// shortcut: no `file` yet; it arrives with #36.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum SourceIn {
@@ -34,23 +34,28 @@ enum SourceIn {
         turn: Option<u64>,
         transcript_path: Option<String>,
     },
+    Web {
+        url: String,
+        fetched_at: Option<String>,
+    },
+    Command {
+        command: String,
+        cwd: Option<String>,
+        exit_code: i64,
+    },
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MemoryIn {
     text: String,
-    scope: Scope,
+    /// A string, not an enum, so a bad value is `SCOPE_INVALID` rather than `INVALID_ARGS`.
+    scope: String,
     epistemic: Option<Epistemic>,
+    /// Absent is treated like empty: `NO_EVIDENCE`, whose hint helps more than `MISSING_FIELD`'s.
+    #[serde(default)]
     evidence: Vec<String>,
     supersedes: Option<Vec<String>>,
-}
-
-#[derive(Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-enum Scope {
-    Global,
-    Project,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -72,12 +77,25 @@ impl Epistemic {
 }
 
 pub fn run(args: Args) -> Result<Value, ToolError> {
+    let evidence = args.evidence.unwrap_or_default();
+    let memories = args.memories.unwrap_or_default();
+    if evidence.is_empty() && memories.is_empty() {
+        return Err(super::missing_field("evidence 或 memories"));
+    }
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
-    crate::log::write(&crate::log::home(), |state| build(state, writer, args))
+    crate::log::write(&crate::log::home(), |state| {
+        build(state, writer, evidence, memories)
+    })
 }
 
 /// Runs under the write lock against freshly replayed state (spec ch. 2).
-fn build(state: &State, writer: Writer, args: Args) -> Result<(Tx, Value), ToolError> {
+fn build(
+    state: &State,
+    writer: Writer,
+    evidence: Vec<EvidenceIn>,
+    memories: Vec<MemoryIn>,
+) -> Result<(Option<Tx>, Value), ToolError> {
+    let at = crate::model::now();
     let mut events = vec![];
 
     // ref or id → (id, source type)
@@ -86,9 +104,27 @@ fn build(state: &State, writer: Writer, args: Args) -> Result<(Tx, Value), ToolE
         .values()
         .map(|(e, _)| (e.id.clone(), (e.id.clone(), source_type(&e.source))))
         .collect();
+    // fingerprint → id, for existing evidence and for evidence new in this call
+    let mut by_fp: HashMap<String, String> = state
+        .evidence
+        .values()
+        .map(|(e, _)| (e.fingerprint(), e.id.clone()))
+        .collect();
+    let mut refs = HashSet::new();
     let mut ev_out = vec![];
-    for e in args.evidence.unwrap_or_default() {
-        let id = new_id("ev");
+    for e in evidence {
+        if e.excerpt.len() > 4096 {
+            return Err(ToolError::new(
+                "EXCERPT_TOO_LONG",
+                format!("摘录 {} 字节，超过 4096 字节", e.excerpt.len()),
+            )
+            .hint("只截取能支撑记忆的那一小段"));
+        }
+        if let Some(r) = &e.local_ref
+            && !refs.insert(r.clone())
+        {
+            return Err(ToolError::invalid_args(format!("ref {r} 在本次调用中重复")));
+        }
         let source = match e.source {
             SourceIn::Conversation {
                 session,
@@ -107,26 +143,77 @@ fn build(state: &State, writer: Writer, args: Args) -> Result<(Tx, Value), ToolE
                 }
                 s
             }
+            SourceIn::Web { url, fetched_at } => {
+                if !(url.starts_with("http://") || url.starts_with("https://")) {
+                    return Err(ToolError::invalid_args(format!(
+                        "web 来源的 url 必须是 http 或 https：{url}"
+                    )));
+                }
+                json!({ "type": "web", "url": url, "fetched_at": fetched_at.unwrap_or_else(|| at.clone()) })
+            }
+            SourceIn::Command {
+                command,
+                cwd,
+                exit_code,
+            } => {
+                let mut s =
+                    json!({ "type": "command", "command": command, "exit_code": exit_code });
+                if let Some(v) = cwd {
+                    s["cwd"] = json!(v);
+                }
+                s
+            }
         };
-        let mut out = json!({ "id": id, "deduped": false });
-        if let Some(r) = &e.local_ref {
-            out["ref"] = json!(r);
-            known.insert(r.clone(), (id.clone(), source_type(&source)));
-        }
-        known.insert(id.clone(), (id.clone(), source_type(&source)));
-        ev_out.push(out);
-        events.push(Event::EvidenceRecorded(Evidence {
-            id,
+        let ty = source_type(&source);
+        let new = Evidence {
+            id: new_id("ev"),
             excerpt: e.excerpt,
             source,
-        }));
+        };
+        let (id, deduped) = match by_fp.get(&new.fingerprint()) {
+            Some(id) => (id.clone(), true),
+            None => {
+                by_fp.insert(new.fingerprint(), new.id.clone());
+                known.insert(new.id.clone(), (new.id.clone(), ty.clone()));
+                (new.id.clone(), false)
+            }
+        };
+        let mut out = json!({ "id": id, "deduped": deduped });
+        if let Some(r) = &e.local_ref {
+            out["ref"] = json!(r);
+            known.insert(r.clone(), (id, ty));
+        }
+        ev_out.push(out);
+        if !deduped {
+            events.push(Event::EvidenceRecorded(new));
+        }
     }
 
     let mut mem_out = vec![];
-    for m in args.memories.unwrap_or_default() {
-        if m.scope == Scope::Project {
+    for m in memories {
+        match m.scope.as_str() {
+            "global" => {}
             // shortcut: project scope arrives with #36.
-            return Err(ToolError::invalid_args("scope project 尚未实现"));
+            "project" => return Err(ToolError::invalid_args("scope project 尚未实现")),
+            other => {
+                return Err(ToolError::new(
+                    "SCOPE_INVALID",
+                    format!("scope {other} 不是 global 或 project"),
+                )
+                .hint("必须显式选择 global 或 project，不按 cwd 默认"));
+            }
+        }
+        let chars = m.text.chars().count();
+        if chars > 500 {
+            return Err(ToolError::new(
+                "TEXT_TOO_LONG",
+                format!("正文 {chars} 字符，超过 500 字符"),
+            )
+            .hint("一条记忆只写一个论断，拆成多条"));
+        }
+        if m.evidence.is_empty() {
+            return Err(ToolError::new("NO_EVIDENCE", "记忆的 evidence 为空")
+                .hint("每条记忆至少引用一条证据；用户说「记住 X」时，这句话本身就是证据"));
         }
         let mut cited = vec![];
         let mut all_conversation = true;
@@ -135,7 +222,10 @@ fn build(state: &State, writer: Writer, args: Args) -> Result<(Tx, Value), ToolE
                 .get(r)
                 .ok_or_else(|| ToolError::new("EVIDENCE_NOT_FOUND", format!("证据 {r} 不存在")))?;
             all_conversation &= ty == "conversation";
-            cited.push(id.clone());
+            // Two refs may name one merged evidence; cite it once.
+            if !cited.contains(id) {
+                cited.push(id.clone());
+            }
         }
         // Spec ch. 1: all-conversation evidence → user_stated, otherwise inferred.
         let epistemic = m.epistemic.unwrap_or(if all_conversation {
@@ -143,6 +233,34 @@ fn build(state: &State, writer: Writer, args: Args) -> Result<(Tx, Value), ToolE
         } else {
             Epistemic::Inferred
         });
+        let supersedes = m.supersedes.unwrap_or_default();
+        // Spec ch. 3 「重复」: runs before any `supersedes` check, so a retried supersession dedups.
+        // shortcut: global scope only; #36 extends the match to the project alias group.
+        let text = crate::model::normalize(&m.text);
+        if let Some((old, _)) = state.memories.values().find(|(old, _)| {
+            old.scope == "global"
+                && state.status(&old.id) == "active"
+                && crate::model::normalize(&old.text) == text
+        }) {
+            let cites = |ev: &String| {
+                state
+                    .cited_by
+                    .get(ev)
+                    .is_some_and(|ms| ms.contains(&old.id))
+            };
+            if cited.iter().all(cites) && supersedes.iter().all(|s| old.supersedes.contains(s)) {
+                mem_out.push(json!({ "id": old.id, "deduped": true, "similar": [] }));
+                continue;
+            }
+            return Err(ToolError::new(
+                "DUPLICATE_TEXT",
+                format!(
+                    "已有正文相同的生效记忆 {}，但本次的证据或取代对象不同",
+                    old.id
+                ),
+            )
+            .hint(format!("改用 corroborate 给 {} 附证", old.id)));
+        }
         let id = new_id("mem");
         mem_out.push(json!({ "id": id, "deduped": false, "similar": [] }));
         events.push(Event::MemoryRecorded(Memory {
@@ -153,14 +271,17 @@ fn build(state: &State, writer: Writer, args: Args) -> Result<(Tx, Value), ToolE
             root_commit: None,
             epistemic: epistemic.as_str().into(),
             evidence: cited,
-            supersedes: m.supersedes.unwrap_or_default(),
+            supersedes,
         }));
     }
 
-    Ok((
-        Tx::new(writer, events),
-        json!({ "evidence": ev_out, "memories": mem_out }),
-    ))
+    // A pure retry adds nothing, so it writes nothing.
+    let tx = (!events.is_empty()).then(|| {
+        let mut tx = Tx::new(writer, events);
+        tx.at = at;
+        tx
+    });
+    Ok((tx, json!({ "evidence": ev_out, "memories": mem_out })))
 }
 
 fn source_type(source: &Value) -> String {

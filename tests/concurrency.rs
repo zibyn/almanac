@@ -32,7 +32,7 @@ fn concurrent_writers_from_many_processes_each_append_one_whole_line() {
     std::thread::scope(|s| {
         for i in 0..n {
             let a = &a;
-            s.spawn(move || a.remember(&format!("并发第 {i} 条 {}", "长".repeat(4000))));
+            s.spawn(move || a.remember(&format!("并发第 {i} 条 {}", "长".repeat(450))));
         }
     });
     assert!(a.log_raw().ends_with('\n'));
