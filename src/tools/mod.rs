@@ -84,6 +84,15 @@ fn not_active(s: &crate::state::State, id: &str, status: &str) -> ToolError {
     }
 }
 
+/// Spec ch. 3: a purged object carries `purged` in place of its text field (`get` and `search`).
+fn tombstone(v: &mut Value, field: &str, purged: &Option<Value>) {
+    if let Some(t) = purged {
+        let o = v.as_object_mut().unwrap();
+        o.remove(field);
+        o.insert("purged".into(), t.clone());
+    }
+}
+
 /// Replays the store's log into derived state.
 fn load() -> Result<crate::state::State, ToolError> {
     let txs = crate::log::replay(&crate::log::home()).map_err(crate::log::io_error)?;

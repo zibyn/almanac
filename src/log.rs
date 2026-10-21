@@ -67,7 +67,6 @@ pub fn replay(home: &Path) -> std::io::Result<Vec<Tx>> {
 
 /// `STORE_NEWER` if the log holds a line from a newer format version: the store is then
 /// read-only (spec ch. 2 「版本」). `write` checks this itself; purge calls it after `lock`.
-#[allow(dead_code)] // first caller: purge (#44)
 pub fn ensure_writable(home: &Path) -> Result<(), ToolError> {
     match std::fs::read(log_path(home)) {
         Ok(raw) if parse(complete_lines(&raw)).newer => Err(store_newer()),
@@ -189,6 +188,53 @@ pub fn write<T>(
     f.write_all(&line).map_err(io_error)?;
     f.sync_all().map_err(io_error)?;
     Ok(out)
+}
+
+/// Purge's rewrite (spec ch. 2 「清除步骤」 2–5): `edit` sees every event of every line as raw JSON
+/// and returns whether it changed it; changed lines are re-serialized, all others kept byte for byte.
+/// Writes `events.jsonl.tmp`, fsyncs it, renames it over the log, fsyncs `log/`.
+/// The caller holds `lock` and has checked `ensure_writable`.
+pub fn rewrite(
+    home: &Path,
+    mut edit: impl FnMut(&mut serde_json::Value) -> bool,
+) -> Result<(), ToolError> {
+    let path = log_path(home);
+    let raw = std::fs::read(&path).map_err(io_error)?;
+    // We hold the lock, so a torn last line is a crash leftover: drop it, like `write` does.
+    let keep = without_torn_line(&raw);
+    if keep.len() < raw.len() {
+        eprintln!(
+            "almanac: 截掉日志末尾的残缺行（崩溃留下的不完整写入）：{}",
+            String::from_utf8_lossy(&raw[keep.len()..]).trim_end()
+        );
+    }
+    let mut out = Vec::with_capacity(keep.len());
+    for line in keep.split_inclusive(|&b| b == b'\n') {
+        let mut tx: serde_json::Value = match serde_json::from_slice(line) {
+            Ok(v) => v,
+            Err(_) => {
+                out.extend_from_slice(line);
+                continue;
+            }
+        };
+        let mut changed = false;
+        for ev in tx["events"].as_array_mut().into_iter().flatten() {
+            changed |= edit(ev);
+        }
+        if changed {
+            serde_json::to_writer(&mut out, &tx).map_err(|e| io_error(e.into()))?;
+            out.push(b'\n');
+        } else {
+            out.extend_from_slice(line);
+        }
+    }
+    let dir = path.parent().unwrap();
+    let tmp = dir.join("events.jsonl.tmp");
+    let mut f = File::create(&tmp).map_err(io_error)?;
+    f.write_all(&out).map_err(io_error)?;
+    f.sync_all().map_err(io_error)?;
+    std::fs::rename(&tmp, &path).map_err(io_error)?;
+    File::open(dir).and_then(|d| d.sync_all()).map_err(io_error)
 }
 
 /// `raw` minus its last line if that line lacks `\n` or is not valid JSON (spec ch. 2).

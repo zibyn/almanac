@@ -6,6 +6,7 @@ mod index;
 mod log;
 mod model;
 mod project;
+mod purge;
 mod remind;
 mod secrets;
 mod similarity;

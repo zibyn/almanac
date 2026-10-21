@@ -36,7 +36,11 @@ pub enum Event {
     },
     Retracted {
         memory: String,
+        /// Empty once purged (spec ch. 1 「清除与墓碑」); `purged` then holds the tombstone.
+        #[serde(default)]
         reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        purged: Option<Value>,
     },
     /// Two project identities declared to be one project (spec ch. 1 "项目别名").
     ProjectAliased {
@@ -50,14 +54,21 @@ pub enum Event {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Evidence {
     pub id: String,
+    /// Empty once purged; `purged` then holds the tombstone and `source` only its `type`.
+    #[serde(default)]
     pub excerpt: String,
     /// Kept as raw JSON so source types added later still replay.
     pub source: Value,
+    /// Tombstone `{at, reason, by}` (spec ch. 1 「清除与墓碑」). Only `purge` writes it, as raw JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purged: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memory {
     pub id: String,
+    /// Empty once purged; `purged` then holds the tombstone.
+    #[serde(default)]
     pub text: String,
     pub scope: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,6 +79,8 @@ pub struct Memory {
     pub evidence: Vec<String>,
     #[serde(default)]
     pub supersedes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purged: Option<Value>,
 }
 
 impl Evidence {
