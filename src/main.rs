@@ -4,6 +4,7 @@ mod error;
 mod log;
 mod model;
 mod project;
+mod remind;
 mod source_check;
 mod state;
 mod tools;
