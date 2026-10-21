@@ -1,7 +1,8 @@
 //! `record`: write evidence and/or memories atomically, as one transaction (spec ch. 3).
 
 use crate::error::ToolError;
-use crate::model::{Event, Evidence, Memory, Tx, new_id};
+use crate::model::{Event, Evidence, Memory, Tx, Writer, new_id};
+use crate::state::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -84,9 +85,29 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         return Err(super::missing_field("evidence 或 memories"));
     }
     let writer = crate::writer::infer(|k| std::env::var(k).ok())?;
-    let state = super::load()?;
-    let at = crate::model::now();
     let project = crate::project::resolve(args.project.as_deref())?;
+    let home = crate::log::home();
+    let (out, checks) = crate::log::write(&home, |state| {
+        build(state, writer, &project, evidence, memories)
+    })?;
+    // The cache is a deletable local observation; failing to write it must not fail a committed write.
+    if let Err(e) = crate::source_check::store(&home, checks) {
+        eprintln!("almanac: failed to write check cache: {e}");
+    }
+    Ok(out)
+}
+
+type Checks = Vec<(String, crate::source_check::Check)>;
+
+/// Runs under the write lock against freshly replayed state (spec ch. 2).
+fn build(
+    state: &State,
+    writer: Writer,
+    project: &crate::project::Project,
+    evidence: Vec<EvidenceIn>,
+    memories: Vec<MemoryIn>,
+) -> Result<(Option<Tx>, (Value, Checks)), ToolError> {
+    let at = crate::model::now();
     let mut events = vec![];
 
     // ref or id → (id, source type)
@@ -299,19 +320,17 @@ pub fn run(args: Args) -> Result<Value, ToolError> {
         }));
     }
 
-    let home = crate::log::home();
     // A pure retry adds nothing, so it writes nothing.
-    if !events.is_empty() {
+    let tx = (!events.is_empty()).then(|| {
         let mut tx = Tx::new(writer, events);
         tx.at = at;
-        tx.git_commit = project.head;
-        crate::log::append(&home, &tx).map_err(super::io_error)?;
-    }
-    // The cache is a deletable local observation; failing to write it must not fail a committed write.
-    if let Err(e) = crate::source_check::store(&home, checks) {
-        eprintln!("almanac: failed to write check cache: {e}");
-    }
-    Ok(json!({ "evidence": ev_out, "memories": mem_out }))
+        tx.git_commit = project.head.clone();
+        tx
+    });
+    Ok((
+        tx,
+        (json!({ "evidence": ev_out, "memories": mem_out }), checks),
+    ))
 }
 
 fn source_type(source: &Value) -> String {

@@ -46,11 +46,6 @@ fn missing_field(field: &str) -> ToolError {
 
 /// Replays the store's log into derived state.
 fn load() -> Result<crate::state::State, ToolError> {
-    let txs = crate::log::replay(&crate::log::home()).map_err(io_error)?;
+    let txs = crate::log::replay(&crate::log::home()).map_err(crate::log::io_error)?;
     Ok(crate::state::State::replay(&txs))
-}
-
-// shortcut: spec ch. 10 has no code for I/O failures; reported as STORE_IO until the spec names one.
-pub(crate) fn io_error(e: std::io::Error) -> ToolError {
-    ToolError::new("STORE_IO", format!("读写记忆库失败：{e}"))
 }
