@@ -9,6 +9,9 @@ pub fn run(args: Vec<String>) -> i32 {
         eprintln!("INVALID_ARGS：用法 almanac <命令> [--json '<参数>' | --json -]");
         return 1;
     };
+    if cmd == "project" {
+        return crate::alias::run(rest);
+    }
     if cmd == "remind" {
         return crate::remind::run();
     }

@@ -51,6 +51,6 @@ fn load() -> Result<crate::state::State, ToolError> {
 }
 
 // shortcut: spec ch. 10 has no code for I/O failures; reported as STORE_IO until the spec names one.
-fn io_error(e: std::io::Error) -> ToolError {
+pub(crate) fn io_error(e: std::io::Error) -> ToolError {
     ToolError::new("STORE_IO", format!("读写记忆库失败：{e}"))
 }
