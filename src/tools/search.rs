@@ -86,14 +86,20 @@ fn check_kind(args: &Args, kind: Kind) -> Result<(), ToolError> {
             .map(|(f, _)| *f),
     };
     match bad {
-        Some(f) => Err(ToolError::invalid_args(format!(
-            "{f} 只对 kind={} 有效",
-            if kind == Kind::Memory {
-                "evidence"
+        Some(f) => {
+            let (other, hint) = if kind == Kind::Memory {
+                (
+                    "evidence",
+                    format!("去掉 {f} 后重试；要查证据请用 kind=evidence"),
+                )
             } else {
-                "memory"
-            }
-        ))),
+                (
+                    "memory",
+                    format!("kind=evidence 检索整个库，不接受 {f}；去掉 {f} 后重试"),
+                )
+            };
+            Err(ToolError::invalid_args(format!("{f} 只对 kind={other} 有效")).hint(hint))
+        }
         None => Ok(()),
     }
 }

@@ -31,7 +31,7 @@ EOF
 | `retract` | 撤回记忆 | 必须写 `reason` |
 | `verify` | 回到来源核验摘录 | 网页证据会联网 |
 
-`search`、`review`、`verify` 的范围：`scope` 取 `global` / `project` / `any`（默认 `any`＝全局＋当前项目），`all: true` 覆盖所有项目。
+`search`（`kind=memory`）、`review`、`verify` 的范围：`scope` 取 `global` / `project` / `any`（默认 `any`＝全局＋当前项目），`all: true` 覆盖所有项目。`kind=evidence` 检索整个库，不接受 `scope`、`all` 等只对记忆有效的参数。参数不确定时运行 `almanac <工具> --help`。
 
 ## 命令不可用
 

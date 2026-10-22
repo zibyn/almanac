@@ -432,7 +432,11 @@ fn memory_only_and_evidence_only_args_are_rejected_across_kinds() {
     ] {
         let mut args = json!({"kind": "evidence"});
         args[k] = v;
-        a.tool("search", args).err("INVALID_ARGS");
+        let e = a.tool("search", args).err("INVALID_ARGS");
+        assert!(
+            e["hint"].as_str().is_some_and(|h| h.contains("去掉")),
+            "{e}"
+        );
     }
     for args in [
         json!({"source_type": ["web"]}),
@@ -442,6 +446,10 @@ fn memory_only_and_evidence_only_args_are_rejected_across_kinds() {
     ] {
         a.tool("search", args).err("INVALID_ARGS");
     }
+    let e = a
+        .tool("search", json!({"kind": "memory", "source_type": ["web"]}))
+        .err("INVALID_ARGS");
+    assert!(e["hint"].is_string(), "{e}");
     a.tool("search", json!({"kind": "memory"})).ok();
     a.tool("search", json!({"stale_only": false})).ok();
 }

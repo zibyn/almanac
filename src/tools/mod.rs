@@ -15,7 +15,7 @@ use crate::state::Status;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-const TOOLS: &[&str] = &[
+pub(crate) const TOOLS: &[&str] = &[
     "record",
     "get",
     "retract",

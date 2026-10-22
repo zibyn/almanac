@@ -5,17 +5,34 @@ use serde_json::json;
 #[test]
 fn help_is_available_and_exits_zero() {
     let a = Almanac::new();
-    for args in [
-        &[][..],
-        &["help"][..],
-        &["--help"][..],
-        &["-h"][..],
-        &["search", "--help"][..],
-    ] {
+    for args in [&[][..], &["help"][..], &["--help"][..], &["-h"][..]] {
         let o = a.run(args, None);
         assert_eq!(o.code, 0, "{args:?}");
         assert!(o.stdout.contains("record"), "{args:?}: {}", o.stdout);
         assert!(o.stderr.is_empty(), "{args:?}: {}", o.stderr);
+    }
+}
+
+#[test]
+fn tool_help_lists_that_tools_parameters() {
+    let a = Almanac::new();
+    for tool in [
+        "record",
+        "get",
+        "search",
+        "review",
+        "corroborate",
+        "retract",
+        "verify",
+    ] {
+        let o = a.run(&[tool, "--help"], None);
+        assert_eq!(o.code, 0, "{tool}");
+        assert!(o.stderr.is_empty(), "{tool}: {}", o.stderr);
+        assert!(o.stdout.contains("参数"), "{tool}: {}", o.stdout);
+    }
+    let o = a.run(&["search", "--help"], None);
+    for needle in ["kind", "source_type", "仅 kind=memory"] {
+        assert!(o.stdout.contains(needle), "{needle}: {}", o.stdout);
     }
 }
 

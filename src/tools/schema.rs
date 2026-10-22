@@ -7,6 +7,12 @@ pub fn list() -> Value {
     let project = json!({"type": "string", "description": "项目路径，只用来定位项目；省略时取 MCP roots → CLAUDE_PROJECT_DIR → 当前目录"});
     let scope = json!({"type": "string", "enum": ["global", "project", "any"], "default": "any", "description": "any＝全局 + 当前项目"});
     let all = json!({"type": "boolean", "default": false, "description": "为真时「项目」不限于当前项目，覆盖库里所有项目"});
+    // `search` 的 scope/all 只对 kind=memory 有效；review/verify 没有 kind，继续用上面两份。
+    let mut search_scope = scope.clone();
+    search_scope["description"] = json!("仅 kind=memory；any＝全局 + 当前项目");
+    let mut search_all = all.clone();
+    search_all["description"] =
+        json!("仅 kind=memory；为真时「项目」不限于当前项目，覆盖库里所有项目");
     let ids = |min: u64, max: Option<u64>| {
         let mut v = json!({"type": "array", "items": {"type": "string"}, "minItems": min});
         if let Some(m) = max {
@@ -68,13 +74,13 @@ pub fn list() -> Value {
             json!({
                 "query": {"type": "string", "description": "省略则只按过滤条件列出，按最近一次记录或附证时间倒序"},
                 "kind": {"type": "string", "enum": ["memory", "evidence"], "default": "memory"},
-                "scope": scope,
-                "all": all,
-                "status": {"type": "array", "items": {"type": "string", "enum": ["active", "superseded", "retracted", "unsupported", "purged"]}, "default": ["active"]},
-                "epistemic": {"type": "array", "items": {"type": "string", "enum": ["observed", "user_stated", "inferred"]}},
-                "writer": {"type": "string", "description": "Writer 的 name"},
-                "cites": {"type": "string", "description": "证据 id：只返回当前引用它的记忆"},
-                "stale_only": {"type": "boolean", "default": false, "description": "只返回带可能过期标记的记忆"},
+                "scope": search_scope,
+                "all": search_all,
+                "status": {"type": "array", "items": {"type": "string", "enum": ["active", "superseded", "retracted", "unsupported", "purged"]}, "default": ["active"], "description": "仅 kind=memory"},
+                "epistemic": {"type": "array", "items": {"type": "string", "enum": ["observed", "user_stated", "inferred"]}, "description": "仅 kind=memory"},
+                "writer": {"type": "string", "description": "仅 kind=memory；Writer 的 name"},
+                "cites": {"type": "string", "description": "仅 kind=memory；证据 id：只返回当前引用它的记忆"},
+                "stale_only": {"type": "boolean", "default": false, "description": "仅 kind=memory；只返回带可能过期标记的记忆"},
                 "source_type": {"type": "array", "items": {"type": "string", "enum": ["conversation", "file", "web", "command"]}, "description": "仅 kind=evidence"},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}
             }),
@@ -130,4 +136,92 @@ pub fn list() -> Value {
             }),
         ),
     ])
+}
+
+/// `almanac <tool> --help`：描述与参数表，从 MCP `tools/list` 的同一份 schema 渲染。
+pub fn help(name: &str) -> Option<String> {
+    let tools = list();
+    let tool = tools.as_array()?.iter().find(|t| t["name"] == name)?;
+    let schema = &tool["inputSchema"];
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let props = schema["properties"].as_object()?;
+    let width = props.keys().map(|k| k.chars().count()).max().unwrap_or(0);
+    let mut out = format!(
+        "almanac {name} — {}\n\n参数（--json 的 JSON 对象；不给 --json 等于 {{}}）：\n",
+        tool["description"].as_str().unwrap_or("")
+    );
+    for (field, v) in props {
+        let mut meta = type_label(v);
+        if let Some(default) = v.get("default") {
+            let default = match default {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            meta.push_str(&format!("，默认 {default}"));
+        }
+        if required.contains(&field.as_str()) {
+            meta.push_str("，必填");
+        }
+        let desc = v["description"].as_str().unwrap_or("");
+        if desc.is_empty() {
+            out.push_str(&format!("  {field:<width$}  {meta}\n"));
+        } else {
+            out.push_str(&format!("  {field:<width$}  {meta}  {desc}\n"));
+        }
+    }
+    Some(out)
+}
+
+/// 帮助里的类型列：有 enum 就列可选值，否则用 array / object / 基本类型。
+fn type_label(v: &Value) -> String {
+    if let Some(values) = enum_values(&v["enum"]) {
+        return values;
+    }
+    match v["type"].as_str() {
+        Some("array") => match enum_values(&v["items"]["enum"]) {
+            Some(values) => format!("array<{values}>"),
+            None => "array".into(),
+        },
+        Some(t) => t.into(),
+        None => "object".into(),
+    }
+}
+
+fn enum_values(v: &Value) -> Option<String> {
+    Some(
+        v.as_array()?
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" | "),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_registered_tool_has_help() {
+        let mut listed: Vec<String> = list()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_owned())
+            .collect();
+        listed.sort();
+        let mut registered: Vec<String> = crate::tools::TOOLS
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        registered.sort();
+        assert_eq!(listed, registered);
+        for name in &registered {
+            let text = help(name).unwrap_or_else(|| panic!("{name} 没有帮助"));
+            assert!(text.contains("参数"), "{name}: {text}");
+        }
+    }
 }

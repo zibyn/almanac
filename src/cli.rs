@@ -10,6 +10,7 @@ const HELP: &str = concat!(
     "\n",
     "用法：\n",
     "  almanac <命令> --json -          参数 JSON 从 stdin 读（用 heredoc 传，推荐）\n",
+    "  almanac <工具> --help            显示该工具的描述与参数\n",
     "  almanac --help                   显示本帮助\n",
     "  almanac --version                显示版本\n",
     "\n",
@@ -48,9 +49,12 @@ pub fn run(args: Vec<String>) -> i32 {
         }
         _ => {}
     }
-    // `<命令> --help` also shows the top-level help rather than failing as an argument.
+    // `<工具> --help` 展开该工具的参数；其他命令仍显示顶层帮助。
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
-        println!("{HELP}");
+        match crate::tools::schema::help(cmd) {
+            Some(text) => println!("{text}"),
+            None => println!("{HELP}"),
+        }
         return 0;
     }
     if cmd == "project" {

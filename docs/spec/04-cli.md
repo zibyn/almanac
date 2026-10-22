@@ -25,7 +25,8 @@ almanac --version
 almanac -V
 ```
 
-- 前五种输出同一份顶层帮助到 stdout，退出码 0。帮助只列命令与一句话，不展开参数：参数见第 3 章，智能体的完整用法由 SKILL.md 承载（第 9 章）。
+- 前四种（无参数、`help`、`--help`、`-h`）输出顶层帮助，退出码 0。`almanac <工具> --help` 输出该工具的描述与参数表，字段来自 MCP `tools/list` 的同一份 schema（第 3 章）；其他命令的 `--help` 仍输出顶层帮助。
+- 顶层帮助只列命令与一句话，不展开参数；每个工具的参数用 `almanac <工具> --help` 查看，智能体的完整用法由 SKILL.md 承载（第 9 章）。
 - `--version` / `-V` 输出 `almanac <版本>`（取自 `Cargo.toml`），退出码 0。
 - 帮助与版本不读记忆库、不推断 Writer，任何环境下都能输出。
 - 未知命令仍报 `INVALID_ARGS`、退出码 1。
