@@ -2,10 +2,10 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter as pathDelimiter, dirname, join, resolve as resolvePath } from "node:path";
 import { assetName, checksumFor, releaseUrl, targetFor } from "./lib.js";
 
 const require = createRequire(import.meta.url);
@@ -18,6 +18,38 @@ const PATH_TIMEOUT = 2_000;
 export function cacheDir(env = process.env, home = homedir()) {
   const base = env.XDG_CACHE_HOME?.trim() || join(home, ".cache");
   return join(base, "almanac", "bin");
+}
+
+/**
+ * 在缓存目录里放一个稳定的 `almanac` 入口，指向解析到的二进制。
+ * Unix 用符号链接；Windows 用复制（创建符号链接通常需要额外权限）。
+ */
+export async function installShim(bin, dir) {
+  if (bin === "almanac") return null;
+  await mkdir(dir, { recursive: true });
+  const dest = join(dir, process.platform === "win32" ? "almanac.exe" : "almanac");
+  if (dest === bin) return dest;
+  try {
+    if ((await readlink(dest)) === bin) return dest;
+  } catch {
+    // 不存在或不是符号链接：重建。
+  }
+  await rm(dest, { force: true });
+  try {
+    await symlink(bin, dest);
+  } catch {
+    await copyFile(bin, dest);
+  }
+  await chmod(dest, 0o755).catch(() => {});
+  return dest;
+}
+
+/** 把 dir 前置到 env.PATH，重复调用不会重复。 */
+export function prependPath(env, dir, delimiter = pathDelimiter) {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  const parts = (env[key] ?? "").split(delimiter).filter(Boolean);
+  env[key] = [dir, ...parts.filter((p) => p !== dir)].join(delimiter);
+  return env[key];
 }
 
 async function usable(path, platform = process.platform) {
@@ -108,7 +140,8 @@ export async function resolveBinary({
 } = {}) {
   const declared = env.ALMANAC_BIN?.trim();
   if (declared) {
-    if (await usable(declared, platform)) return declared;
+    const absolute = resolvePath(declared);
+    if (await usable(absolute, platform)) return absolute;
     warn(`almanac: ALMANAC_BIN=${declared} 不可执行，继续查找`);
   }
 

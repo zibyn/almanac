@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { BUNDLED_SKILL_RANK } from "@deepseek-ai/dsh-skill";
-import { ensureBinary } from "./binary.js";
+import { cacheDir, ensureBinary, installShim, prependPath } from "./binary.js";
 import { createSteerGuard, parseReason, shouldInject, skillDescription, usableContext } from "./lib.js";
 
 const NAME = "almanac";
@@ -73,15 +73,33 @@ export const name = NAME;
 // skills 供 provider 注册，workingDirectory 供 context 解析项目。
 export const inject = ["skills", "workingDirectory"];
 
+// 解析一次二进制，并在缓存目录放一个稳定的 almanac 入口、把它前置到 PATH。
+// DSH 的 shell 工具每次从 process.env 构造子进程环境，所以模型的 bash 能直接调用 almanac。
+let onPathReady;
+function ensureOnPath(warn) {
+  onPathReady ??= ensureBinary(warn).then(async (bin) => {
+    if (!bin || bin === "almanac") return bin;
+    try {
+      const dir = cacheDir();
+      await installShim(bin, dir);
+      prependPath(process.env, dir);
+    } catch (error) {
+      warn(`almanac: 无法把二进制加入 PATH：${String(error)}`);
+    }
+    return bin;
+  });
+  return onPathReady;
+}
+
 export function apply(ctx) {
   const warn = (message) => ctx.logger.warn(message);
   // 启动时就解析/下载，skill 目录与第一轮注入共用同一个结果。
-  void ensureBinary(warn);
+  void ensureOnPath(warn);
   let warned = false;
   const provider = {
     name: NAME,
     async list() {
-      if (!(await ensureBinary(warn))) {
+      if (!(await ensureOnPath(warn))) {
         if (!warned) {
           warned = true;
           warn("almanac: 二进制不可用，不注册 skill");
@@ -119,7 +137,7 @@ export function apply(ctx) {
   ctx.on("agent/created", async ({ agent, source, signal }) => {
     if (!shouldInject(source) || isSubagent(agent)) return;
     try {
-      const bin = await ensureBinary(warn);
+      const bin = await ensureOnPath(warn);
       if (!bin) return;
       const cwd = await cwdOf(ctx, agent, signal);
       const output = (await run(bin, ["context"], cwd, undefined, signal)).trim();
@@ -143,7 +161,7 @@ export function apply(ctx) {
       stop_hook_active: guard.take(session),
     });
     try {
-      const bin = await ensureBinary(warn);
+      const bin = await ensureOnPath(warn);
       if (!bin) return;
       const cwd = await cwdOf(ctx, agent, signal);
       const reason = parseReason(await run(bin, ["remind"], cwd, input, signal));

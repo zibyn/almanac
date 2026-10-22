@@ -144,6 +144,7 @@ DSH 没有 CC 那样的插件目录 hook 发现；官方 `@deepseek-ai/dsh-hooks
 - 5 秒超时；spawn 失败、超时、非零退出都当作无输出，永不阻塞会话。
 - SKILL.md 由 `ctx.skills.registerProvider` 随包提供，用户无需另装 skill 文件。provider 先按 `ALMANAC_BIN` → `PATH` → 缓存 → Release 下载解析二进制；都不可用时返回空目录并记 warning，**不把用不了的 skill 露给模型**，否则模型调用失败后会去文件系统里找二进制。
 - 二进制解析在 `apply()` 启动时就异步开始，skill 目录、会话开始注入与写入提醒共用同一个 Promise；首次下载最坏会拖慢首个 skill 目录/第一轮，但不会阻塞进程启动，失败则退回 `PATH`。
+- 模型通过 bash 调 `almanac` 时走 shell 的 `PATH`。插件在 `~/.cache/almanac/bin` 放一个稳定的 `almanac` 入口（Unix 符号链接，Windows 复制），并把该目录前置到 DSH 进程的 `process.env.PATH`；DSH 的 shell 工具每次从 `process.env` 构造子进程环境，所以模型直接调用 `almanac`。共享 SKILL.md 保持宿主中立，不含 DSH 专属内容。
 - `context` 输出以「almanac 不可用：」开头时不注入，只记 warning：记忆库缺失按「没有记忆」处理，第一次 `record` 会自动创建，不能让模型看到错误行后去找目录。
 - SKILL.md 的「命令不可用」一节明确要求：命令不存在、没注入记忆或收到 `almanac 不可用：` 时，不要搜索文件系统，告诉用户检查 `PATH` / `ALMANAC_HOME`。
 

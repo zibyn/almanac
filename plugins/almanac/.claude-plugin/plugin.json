@@ -1,6 +1,6 @@
 {
   "name": "almanac",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "智能体的长期记忆：SKILL.md、会话开始注入与写入提醒（需要 PATH 上的 almanac 二进制）",
   "author": { "name": "zibyn" },
   "repository": "https://github.com/zibyn/almanac",

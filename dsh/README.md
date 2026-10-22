@@ -38,6 +38,8 @@ dsh plugin --profile web add github:zibyn/almanac#path:/dsh
 - `ALMANAC_BIN=/path/to/almanac`：强制使用指定二进制。
 - `ALMANAC_RELEASE_BASE=<url>`：替换 Release 下载前缀（镜像/离线环境）。
 
+模型通过 DSH 的 bash 工具调用时，插件会在 `~/.cache/almanac/bin` 放一个稳定的 `almanac` 入口（Unix 符号链接，Windows 复制），并把该目录前置到 DSH 进程的 `PATH`。所以即使下载的二进制不在原来的 `PATH` 上，模型也能直接调用 `almanac`，SKILL.md 不需要任何宿主专属内容。
+
 ## 它做什么
 
 - 用 `ctx.skills.registerProvider` 随包提供 `almanac` skill，不需要另装 `~/.agents/skills`。

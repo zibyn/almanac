@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import test from "node:test";
-import { cacheDir, downloadBinary, resolveBinary } from "./binary.js";
+import { cacheDir, downloadBinary, installShim, prependPath, resolveBinary } from "./binary.js";
 import { assetName, targetFor } from "./lib.js";
 
 const require = createRequire(import.meta.url);
@@ -48,6 +48,27 @@ test("缓存目录优先 XDG_CACHE_HOME", () => {
     cacheDir({}, "/home/me"),
     join("/home/me", ".cache", "almanac", "bin"),
   );
+});
+
+test("PATH 前置且幂等", () => {
+  const env = { PATH: ["/a", "/b"].join(delimiter) };
+  prependPath(env, "/x");
+  assert.equal(env.PATH, ["/x", "/a", "/b"].join(delimiter));
+  prependPath(env, "/x");
+  assert.equal(env.PATH, ["/x", "/a", "/b"].join(delimiter));
+  prependPath(env, "/a");
+  assert.equal(env.PATH, ["/a", "/x", "/b"].join(delimiter));
+});
+
+test("installShim 建立稳定的 almanac 入口", { skip: !unix }, async (t) => {
+  const dir = await tempDir(t);
+  const bin = join(dir, "almanac-0.1.0-x86_64-unknown-linux-gnu");
+  await writeFile(bin, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const shim = await installShim(bin, dir);
+  assert.equal(shim, join(dir, "almanac"));
+  assert.equal(await readlink(shim), bin);
+  assert.equal(await installShim(bin, dir), shim, "重复调用幂等");
+  assert.equal(await installShim("almanac", dir), null);
 });
 
 test("ALMANAC_BIN 优先", { skip: !unix }, async (t) => {

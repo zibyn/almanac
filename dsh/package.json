@@ -1,6 +1,6 @@
 {
   "name": "@zibyn/dsh-almanac",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "almanac：带证据的智能体长期记忆（DeepSeek Harness 插件）",
   "keywords": ["almanac", "memory", "dsh-plugin", "deepseek-harness"],
   "type": "module",
