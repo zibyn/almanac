@@ -7,13 +7,13 @@ Memories change. Evidence remains.
 
 ### 1. 二进制
 
-`almanac` 必须在 `PATH` 上。从 [GitHub Release](https://github.com/zibyn/almanac/releases) 下载，或：
+CLI、MCP、Claude Code、Codex、Pi 需要 `almanac` 在 `PATH` 上。从 [GitHub Release](https://github.com/zibyn/almanac/releases) 下载，或：
 
 ```bash
 cargo install --git https://github.com/zibyn/almanac
 ```
 
-插件不会自动更新二进制。
+DSH 插件不需要手动放 `PATH`：它按 `ALMANAC_BIN` → `PATH` → `~/.cache/almanac/bin` → GitHub Release 下载的顺序解析二进制，并校验 SHA-256。插件不会自动更新二进制。
 
 ### 2. 插件
 
@@ -23,10 +23,10 @@ cargo install --git https://github.com/zibyn/almanac
 |---|---|
 | Claude Code | `claude plugin install almanac --marketplace zibyn/almanac` |
 | Codex | `codex plugin marketplace add zibyn/almanac`，然后 `codex plugin add almanac@almanac` |
-| DeepSeek Harness | `dsh plugin --profile web add @zibyn/dsh-almanac` |
+| DeepSeek Harness | 从 [GitHub Releases](https://github.com/zibyn/almanac/releases) 取 `zibyn-dsh-almanac-<版本>.tgz`，运行 `dsh plugin --profile web add <tgz 路径或 URL>` |
 | Pi | `pi install git:github.com/zibyn/almanac` |
 
-DSH 的 `dsh plugin` 需要 `pnpm` 在 `PATH` 上；npm 包尚未发布时可用 git 安装：`dsh plugin --profile web add github:zibyn/almanac#path:/dsh`。DSH 插件不经过 hook 桥，没有信任步骤。
+DSH 的 `dsh plugin` 需要 `pnpm` 在 `PATH` 上。插件会优先用 `ALMANAC_BIN` 或 `PATH` 上的 `almanac`；都没有时从同一个 GitHub Release 下载对应平台的二进制到 `~/.cache/almanac/bin`，校验 SHA-256 后使用。没有 Release 产物时也可用 git 安装：`dsh plugin --profile web add github:zibyn/almanac#path:/dsh`。DSH 插件不经过 hook 桥，没有信任步骤。
 
 **Codex 用户还要信任两个 hook。** 装完后在 Codex 里运行 `/hooks`，信任 almanac 的 `SessionStart` 与 `Stop` hook。Codex 的信任绑定整个插件目录的内容哈希，所以**每次升级插件后 Codex 都会要求重新信任**：到 `/hooks` 再信任一次，否则注入与提醒不再出现。没有信任时，只是少了会话开始注入或写入提醒，智能体照样能用 almanac。
 

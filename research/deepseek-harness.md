@@ -149,8 +149,11 @@ DSH 具备 MCP 客户端与工具命名空间，但插件策略仍是“MCP 不�
 ## 7. 分发
 
 - **npm**：包声明 `dsh.bundle` 即可被 `dsh plugin add` 识别；插件市场 index 也以 npm 包为来源。
+- **GitHub Release tarball**：`dsh plugin --profile <name> add <tgz 路径或 URL>`。pnpm 支持远程 tarball；已用本地 HTTP 服务验证 `http://…/zibyn-dsh-almanac-0.1.0.tgz` 能安装并自动进入 `dsh.profile.bundles`。GitHub Release 的 asset URL 同理。注意：GitHub 自动生成的 Source code zip/tar.gz 不是 npm 包，不能这样装；asset 必须是 `npm pack` 产物。
+- **插件市场**：index 的 source 只支持 npm 与 git；Release tarball URL 不能进入市场，只能用 CLI 安装。
 - **Git**：`dsh plugin --profile <name> add github:zibyn/almanac#path:/dsh`；pnpm 从 git 取源码，若包需要构建，必须有 `prepare` 脚本（本适配计划用纯 JS，无构建步骤）。
 - **本地**：`dsh plugin --profile <name> add /path/to/almanac/dsh`。
+- **二进制**：插件可以自己在运行时从同一 Release 下载 `almanac-<version>-<target>[.exe]`，用 `SHA256SUMS` 校验后缓存；不依赖 `PATH`。`ALMANAC_RELEASE_BASE` 可替换下载前缀。
 - 名称可用性（2026-10-22 查询）：`@zibyn/dsh-almanac`、`dsh-almanac`、`@zibyn/almanac` 在 npm 均返回 404；是否拥有 `@zibyn` scope 需发布者确认。
 
 ## 8. 本地验证（2026-10-22）
@@ -160,11 +163,13 @@ DSH 具备 MCP 客户端与工具命名空间，但插件策略仍是“MCP 不�
 - `dsh --profile test --dump-config-schema` 退出码 0，说明 DSH 的模块解析能加载插件（`index.js` 的 peer 依赖由宿主提供，profile 的 `node_modules` 没有额外副本）。
 - `dsh --profile test` 启动 12 秒无报错（超时退出，符合预期）。
 - 用 fake Cordis `ctx` + fake `almanac` 可执行文件验证：skill provider 返回 SKILL.md；`startup` 注入、`resume` 与 subagent 跳过；`turn-stopping` 注入提醒；`stop_hook_active` 循环保护按 session 生效。
-- **未做**：真实模型回合。本机没有 DeepSeek 凭据，因此 `agent/created` 注入是否出现在真实第一轮请求、`agent/turn-stopping` 的真实时序仍需有凭据时补测。
+- 用本地 HTTP 服务模拟 GitHub Release（`v0.1.0/` 下放原始二进制与 `SHA256SUMS`）验证：远程 tarball 安装成功、bundle 自动选中、`--dump-config-schema` 退出码 0；插件从缓存路径下载二进制、校验通过并可执行。
+- `cross build --release --target aarch64-unknown-linux-gnu` 本机通过，说明 CI 的 linux arm64 交叉构建可行。
+- **未做**：真实模型回合。本机没有 DeepSeek 凭据，因此 `agent/created` 注入是否出现在真实第一轮请求、`agent/turn-stopping` 的真实时序仍需有凭据时补测。macOS / Windows 的 release 构建只在 CI 中验证，本机未跑。
 
 ## 9. 未验证与风险
 
-- 本机尚未安装 DSH；“`agent/created` 注入可靠赶在第一轮”来自源码事件契约，未做运行时验证。
+- DSH 装在临时前缀并做过加载验证，但没有真实模型回合；“`agent/created` 注入可靠赶在第一轮”来自源码事件契约，未做真实请求验证。
 - DSH 处于 developer preview，`agent/created`、`agent.inject`、`agent/turn-stopping`、skill provider 签名都可能变。
 - 官方文档存在命名漂移：cookbook 说没有 `agent/session-start`，而部分社区文章仍用旧名；以仓库源码为准。
 - `@deepseek-ai/dsh-llm` / `dsh-skill` 的 npm `latest` 标签查询结果与 versions 列表不一致；锁版本时应以实际安装的 dsh 运行时解析结果为准。

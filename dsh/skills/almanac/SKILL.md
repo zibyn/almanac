@@ -35,6 +35,11 @@ EOF
 
 `search`、`review`、`verify` 的范围：`scope` 取 `global` / `project` / `any`（默认 `any`＝全局＋当前项目），`all: true` 覆盖所有项目。
 
+## 命令不可用
+
+- `almanac: command not found`、会话开头没有注入记忆，或收到「almanac 不可用：…」：**不要搜索文件系统**，也不要换目录找二进制或记忆库。告诉用户把 `almanac` 放到 `PATH`，或检查 `ALMANAC_HOME`。
+- 记忆库目录不存在不是错误：第一次 `record` 会自动创建。
+
 ## 检索
 
 - 动手前，以及用户提到过去的约定、偏好、「上次」「之前说过」时，先 `search`：

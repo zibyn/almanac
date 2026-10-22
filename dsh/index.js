@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { BUNDLED_SKILL_RANK } from "@deepseek-ai/dsh-skill";
-import { createSteerGuard, parseReason, shouldInject, skillDescription } from "./lib.js";
+import { ensureBinary } from "./binary.js";
+import { createSteerGuard, parseReason, shouldInject, skillDescription, usableContext } from "./lib.js";
 
 const NAME = "almanac";
 const SKILL_DIR = new URL("./skills/almanac/", import.meta.url);
@@ -22,42 +23,13 @@ function loadSkill() {
   return skill;
 }
 
-const provider = {
-  name: NAME,
-  async list() {
-    const { description } = await loadSkill();
-    return [{
-      name: NAME,
-      description,
-      invocation: INVOCATION,
-      provider: NAME,
-      source: "bundled",
-      resourceBase: RESOURCE_BASE,
-      rank: BUNDLED_SKILL_RANK,
-      locator: SKILL_FILE,
-    }];
-  },
-  async get() {
-    const { text, description } = await loadSkill();
-    return {
-      name: NAME,
-      description,
-      invocation: INVOCATION,
-      provider: NAME,
-      source: "bundled",
-      resourceBase: RESOURCE_BASE,
-      content: text,
-    };
-  },
-};
-
 // 任何失败都当作无输出：注入与提醒永不阻塞会话。
-function run(args, cwd, input, signal) {
+function run(bin, args, cwd, input, signal) {
   return new Promise((resolve) => {
     let stdout = "";
     let child;
     try {
-      child = spawn("almanac", args, {
+      child = spawn(bin, args, {
         cwd,
         stdio: ["pipe", "pipe", "ignore"],
         signal,
@@ -102,17 +74,63 @@ export const name = NAME;
 export const inject = ["skills", "workingDirectory"];
 
 export function apply(ctx) {
+  const warn = (message) => ctx.logger.warn(message);
+  // 启动时就解析/下载，skill 目录与第一轮注入共用同一个结果。
+  void ensureBinary(warn);
+  let warned = false;
+  const provider = {
+    name: NAME,
+    async list() {
+      if (!(await ensureBinary(warn))) {
+        if (!warned) {
+          warned = true;
+          warn("almanac: 二进制不可用，不注册 skill");
+        }
+        return [];
+      }
+      const { description } = await loadSkill();
+      return [{
+        name: NAME,
+        description,
+        invocation: INVOCATION,
+        provider: NAME,
+        source: "bundled",
+        resourceBase: RESOURCE_BASE,
+        rank: BUNDLED_SKILL_RANK,
+        locator: SKILL_FILE,
+      }];
+    },
+    async get() {
+      const { text, description } = await loadSkill();
+      return {
+        name: NAME,
+        description,
+        invocation: INVOCATION,
+        provider: NAME,
+        source: "bundled",
+        resourceBase: RESOURCE_BASE,
+        content: text,
+      };
+    },
+  };
   ctx.skills.registerProvider(() => provider);
 
   // agent/created 是 serial 且被 await 的，注入赶在第一轮之前。
   ctx.on("agent/created", async ({ agent, source, signal }) => {
     if (!shouldInject(source) || isSubagent(agent)) return;
     try {
+      const bin = await ensureBinary(warn);
+      if (!bin) return;
       const cwd = await cwdOf(ctx, agent, signal);
-      const text = (await run(["context"], cwd, undefined, signal)).trim();
-      if (text) agent.inject(message(text, "recall"));
+      const output = (await run(bin, ["context"], cwd, undefined, signal)).trim();
+      const text = usableContext(output);
+      if (!text) {
+        if (output) warn(`almanac: 会话开始注入跳过：${output}`);
+        return;
+      }
+      agent.inject(message(text, "recall"));
     } catch (error) {
-      ctx.logger.warn(`almanac: 会话开始注入失败：${String(error)}`);
+      warn(`almanac: 会话开始注入失败：${String(error)}`);
     }
   });
 
@@ -125,13 +143,15 @@ export function apply(ctx) {
       stop_hook_active: guard.take(session),
     });
     try {
+      const bin = await ensureBinary(warn);
+      if (!bin) return;
       const cwd = await cwdOf(ctx, agent, signal);
-      const reason = parseReason(await run(["remind"], cwd, input, signal));
+      const reason = parseReason(await run(bin, ["remind"], cwd, input, signal));
       if (!reason) return;
       guard.mark(session);
       agent.steer(message(reason, "instructions"));
     } catch (error) {
-      ctx.logger.warn(`almanac: 写入提醒失败：${String(error)}`);
+      warn(`almanac: 写入提醒失败：${String(error)}`);
     }
   });
 }

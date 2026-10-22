@@ -1,0 +1,151 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: node --test dsh/*.test.mjs
+      - run: npm pack ./dsh --dry-run
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both Linux targets use cross: the gnu images link against an old
+          # glibc, so the binary runs on older distros too.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-apple-darwin
+            os: macos-14
+            cross: false
+          - target: x86_64-apple-darwin
+            os: macos-14
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --locked --release --target ${{ matrix.target }}
+
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          EXT=""
+          if [[ "${{ matrix.target }}" == *windows* ]]; then EXT=".exe"; fi
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/almanac${EXT}" \
+             "dist/almanac-${VERSION}-${{ matrix.target }}${EXT}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Verify versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF_NAME" in
+            v*) ;;
+            *) echo "tag must start with v: $GITHUB_REF_NAME" >&2; exit 1 ;;
+          esac
+          VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION=$(node -e "const t=require('fs').readFileSync('Cargo.toml','utf8'); console.log(t.match(/^\[package\][\s\S]*?^version\s*=\s*\"([^\"]+)\"/m)[1])")
+          DSH_VERSION=$(node -p "require('./dsh/package.json').version")
+          CC_VERSION=$(node -p "require('./plugins/almanac/.claude-plugin/plugin.json').version")
+          echo "tag=$VERSION cargo=$CARGO_VERSION dsh=$DSH_VERSION cc=$CC_VERSION"
+          test "$VERSION" = "$CARGO_VERSION"
+          test "$VERSION" = "$DSH_VERSION"
+          test "$VERSION" = "$CC_VERSION"
+
+      - name: Build plugin tarball
+        run: npm pack ./dsh --pack-destination dist
+
+      - name: SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum almanac-* zibyn-dsh-almanac-*.tgz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi

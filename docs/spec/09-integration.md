@@ -4,7 +4,16 @@ almanac 以宿主原生插件接入 Claude Code（CC）、Codex、DeepSeek Harne
 
 ## 二进制
 
-`almanac` 必须在 `PATH` 上：从 GitHub Release 下载，或 `cargo install`。不做自动更新，也不做插件与二进制的版本协商。版本不匹配时，由 `STORE_NEWER`（第 2 章）与 `context` 的「almanac 不可用：…」兜底。
+CLI、MCP、CC、Codex、Pi 的接入面要求 `almanac` 在 `PATH` 上：从 GitHub Release 下载，或 `cargo install`。DSH 插件例外，它自己做二进制解析：
+
+1. `ALMANAC_BIN`；
+2. `PATH` 上的 `almanac`；
+3. `~/.cache/almanac/bin` 里缓存的、与插件版本和 target 对应的二进制；
+4. 从同一个 GitHub Release 下载 `almanac-<version>-<target>[.exe]`。
+
+下载前取同 Release 的 `SHA256SUMS`，摘要不匹配绝不落盘。缓存目录是 `XDG_CACHE_HOME/almanac/bin`（默认 `~/.cache/almanac/bin`），单设备、多智能体共享。下载失败退回 `PATH`；都不可用时不注册 skill。`ALMANAC_RELEASE_BASE` 可替换下载前缀，供镜像或离线环境使用。
+
+不做自动更新，也不做插件与二进制的版本协商。版本不匹配时，由 `STORE_NEWER`（第 2 章）与 `context` 的「almanac 不可用：…」兜底。
 
 ## 插件
 
@@ -24,8 +33,11 @@ dsh/
   package.json                       DSH bundle：dsh.bundle.patch、engines.dsh、peer 依赖
   cordis.patch.yml                   插入 almanac 插件行
   index.js                           Cordis 插件：skill provider、注入、提醒
-  lib.js                             可单测的纯逻辑（注入来源、reason 解析、续跑保护）
+  binary.js                          二进制解析/下载（ALMANAC_BIN → PATH → 缓存 → Release）
+  lib.js                             可单测的纯逻辑（注入来源、reason 解析、续跑保护、target 映射）
   skills/almanac/SKILL.md            与共享副本逐字节一致，测试守住
+.github/workflows/ci.yml             PR/push：fmt、clippy、Rust/Node 测试、npm pack
+.github/workflows/release.yml        v* tag：五平台构建、SHA256SUMS、插件 tarball、Release
 ```
 
 - 不用符号链接：Codex 安装时会丢弃符号链接。
@@ -39,7 +51,7 @@ dsh/
 |---|---|
 | CC | `claude plugin install almanac --marketplace zibyn/almanac` |
 | Codex | `codex plugin marketplace add zibyn/almanac`，然后 `codex plugin add almanac@almanac` |
-| DSH | `dsh plugin --profile web add @zibyn/dsh-almanac` |
+| DSH | `dsh plugin --profile web add <Release 里的 zibyn-dsh-almanac-<版本>.tgz 路径或 URL>` |
 | Pi | `pi install git:github.com/zibyn/almanac` |
 
 - Codex：装完后要到 `/hooks` 信任 almanac 的 `SessionStart` 与 `Stop` hook，安装说明里写明，不做绕过。没有信任时，只是少了会话开始注入或写入提醒。Codex 的信任钉住的是整个插件目录的内容哈希（`codex-rs/hooks/src/engine/plugin_fingerprint.rs`），不只是 `hooks.json`：插件目录里任何文件变化（含 SKILL.md）都要用户重新信任，所以插件目录要少改，安装说明写明更新后可能要重新信任。
@@ -50,7 +62,8 @@ dsh/
   { "pi": { "skills": ["./plugins/almanac/skills"], "extensions": ["./pi/almanac.ts"] } }
   ```
 
-- DSH：`dsh plugin` 把参数转发给 profile 目录里的 pnpm，`pnpm` 必须在 `PATH` 上。装的是 bundle，声明了 `dsh.bundle` 的依赖会被自动并入 `dsh.profile.bundles`。没有 npm 发布时可用 git 备用：`dsh plugin --profile web add github:zibyn/almanac#path:/dsh`。插件不经过 DSH 的 hook 桥，没有额外的信任或 `/hooks` 步骤。
+- DSH：`dsh plugin` 把参数转发给 profile 目录里的 pnpm，`pnpm` 必须在 `PATH` 上。装的是 bundle，声明了 `dsh.bundle` 的依赖会被自动并入 `dsh.profile.bundles`。首选 GitHub Release 里的 npm tarball：`dsh plugin --profile web add https://github.com/zibyn/almanac/releases/download/v<版本>/zibyn-dsh-almanac-<版本>.tgz`；也可用本地 tgz 或 git 备用：`dsh plugin --profile web add github:zibyn/almanac#path:/dsh`。DSH 插件市场索引只接受 npm/git 源，所以 Release 安装是 CLI 命令，不会出现在市场里。插件不经过 DSH 的 hook 桥，没有额外的信任或 `/hooks` 步骤。
+- DSH 的 Release 产物：`zibyn-dsh-almanac-<version>.tgz`、各 target 的原始二进制 `almanac-<version>-<target>[.exe]`、`SHA256SUMS`。tag 必须是 `v<version>`，且与 `Cargo.toml`、`dsh/package.json`、`plugin.json` 的版本一致（CI 守住）。
 - DSH 处于 developer preview。`package.json` 的 `engines.dsh` 与 peer 依赖写成已测试的小版本范围（当前 `>=0.2.1-rc.2 <0.3.0`）；实测过新区间后再放宽，不要用开放上界。
 
 ## 会话开始注入
@@ -129,7 +142,10 @@ DSH 没有 CC 那样的插件目录 hook 发现；官方 `@deepseek-ai/dsh-hooks
 - `resume` 不注入；`session.header.origin === "subagent"` 的子智能体不注入。
 - 子进程 cwd 取 `ctx.workingDirectory.ensure(agent, signal)`，项目仍按通用规则解析。
 - 5 秒超时；spawn 失败、超时、非零退出都当作无输出，永不阻塞会话。
-- SKILL.md 由 `ctx.skills.registerProvider` 随包提供，用户无需另装 skill 文件。
+- SKILL.md 由 `ctx.skills.registerProvider` 随包提供，用户无需另装 skill 文件。provider 先按 `ALMANAC_BIN` → `PATH` → 缓存 → Release 下载解析二进制；都不可用时返回空目录并记 warning，**不把用不了的 skill 露给模型**，否则模型调用失败后会去文件系统里找二进制。
+- 二进制解析在 `apply()` 启动时就异步开始，skill 目录、会话开始注入与写入提醒共用同一个 Promise；首次下载最坏会拖慢首个 skill 目录/第一轮，但不会阻塞进程启动，失败则退回 `PATH`。
+- `context` 输出以「almanac 不可用：」开头时不注入，只记 warning：记忆库缺失按「没有记忆」处理，第一次 `record` 会自动创建，不能让模型看到错误行后去找目录。
+- SKILL.md 的「命令不可用」一节明确要求：命令不存在、没注入记忆或收到 `almanac 不可用：` 时，不要搜索文件系统，告诉用户检查 `PATH` / `ALMANAC_HOME`。
 
 ## 写入提醒
 

@@ -102,12 +102,22 @@ fn dsh_package_is_a_bundle_and_versions_with_the_crate() {
     }
     for path in [
         "dsh/index.js",
+        "dsh/binary.js",
         "dsh/lib.js",
         "dsh/cordis.patch.yml",
         "dsh/skills/almanac/SKILL.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
     ] {
         assert!(root().join(path).exists(), "{path}");
     }
+    let files: Vec<&str> = p["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(files.contains(&"binary.js"), "{files:?}");
 }
 
 #[test]

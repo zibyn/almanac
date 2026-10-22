@@ -7,11 +7,15 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./binary.js": "./binary.js",
     "./lib.js": "./lib.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "lib.js", "cordis.patch.yml", "skills/", "README.md"],
+  "files": ["index.js", "binary.js", "lib.js", "cordis.patch.yml", "skills/", "README.md"],
+  "scripts": {
+    "test": "node --test *.test.mjs"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zibyn/almanac.git",
