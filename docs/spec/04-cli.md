@@ -13,6 +13,23 @@
 
 - 除 `context`、`remind` 外，成功退出码 0；失败退出码 1，stderr 输出一行 `<错误码>：<说明>`。
 
+## almanac help / --version
+
+```
+almanac
+almanac help
+almanac --help
+almanac -h
+almanac <命令> --help
+almanac --version
+almanac -V
+```
+
+- 前五种输出同一份顶层帮助到 stdout，退出码 0。帮助只列命令与一句话，不展开参数：参数见第 3 章，智能体的完整用法由 SKILL.md 承载（第 9 章）。
+- `--version` / `-V` 输出 `almanac <版本>`（取自 `Cargo.toml`），退出码 0。
+- 帮助与版本不读记忆库、不推断 Writer，任何环境下都能输出。
+- 未知命令仍报 `INVALID_ARGS`、退出码 1。
+
 ## almanac mcp
 
 ```

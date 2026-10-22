@@ -19,7 +19,7 @@
 ### 调用方式
 
 - **MCP**：`almanac mcp` 启动 stdio server（第 4 章），工具名即上表名字，参数即本章的 schema。
-- **CLI**：`almanac <tool> --json '<参数 JSON>'`；`--json -` 从 stdin 读参数（便于智能体用 heredoc 传含引号的中文）。不给 `--json` 等同于参数 `{}`。
+- **CLI**：`almanac <tool> --json -`，参数 JSON 从 stdin 读；智能体一律用 heredoc（`<<'EOF'`），避免 shell 截断内含单引号的参数。也可直接写 `--json '<参数 JSON>'`，仅供人偶尔使用。不给 `--json` 等同于参数 `{}`。
   - 成功：响应 JSON 写到 stdout，退出码 0。
   - 失败：错误 JSON 写到 stdout，退出码 1。
 

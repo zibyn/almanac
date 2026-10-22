@@ -3,6 +3,44 @@ use common::Almanac;
 use serde_json::json;
 
 #[test]
+fn help_is_available_and_exits_zero() {
+    let a = Almanac::new();
+    for args in [
+        &[][..],
+        &["help"][..],
+        &["--help"][..],
+        &["-h"][..],
+        &["search", "--help"][..],
+    ] {
+        let o = a.run(args, None);
+        assert_eq!(o.code, 0, "{args:?}");
+        assert!(o.stdout.contains("record"), "{args:?}: {}", o.stdout);
+        assert!(o.stderr.is_empty(), "{args:?}: {}", o.stderr);
+    }
+}
+
+#[test]
+fn version_prints_the_crate_version_and_exits_zero() {
+    let o = Almanac::new().run(&["--version"], None);
+    assert_eq!(o.code, 0);
+    assert_eq!(
+        o.stdout.trim(),
+        concat!("almanac ", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
+fn unknown_command_is_still_invalid_args() {
+    let o = Almanac::new().run(&["bogus"], None);
+    assert_eq!(o.code, 1);
+    assert!(
+        o.stderr.starts_with("INVALID_ARGS：未知命令 bogus"),
+        "{}",
+        o.stderr
+    );
+}
+
+#[test]
 fn no_resolvable_store_is_a_store_io_error() {
     // The harness clears the environment, so HOME and XDG_DATA_HOME are unset too.
     let a = Almanac::new().unset("ALMANAC_HOME");

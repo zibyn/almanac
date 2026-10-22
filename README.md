@@ -71,7 +71,9 @@ EOF
 撤回一条（id 从 `almanac export` 或 `almanac search` 里找）：
 
 ```bash
-ALMANAC_WRITER=human almanac retract --json '{"memory":"mem_…","reason":"…"}'
+ALMANAC_WRITER=human almanac retract --json - <<'EOF'
+{"memory":"mem_…","reason":"…"}
+EOF
 ```
 
 要从磁盘上彻底抹去敏感内容（如误记的密钥），在终端运行 `almanac purge <id> --reason <原因>`，它会逐项确认。

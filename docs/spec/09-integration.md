@@ -55,7 +55,7 @@ dsh/
 | Pi | `pi install git:github.com/zibyn/almanac` |
 
 - Codex：装完后要到 `/hooks` 信任 almanac 的 `SessionStart` 与 `Stop` hook，安装说明里写明，不做绕过。没有信任时，只是少了会话开始注入或写入提醒。Codex 的信任钉住的是整个插件目录的内容哈希（`codex-rs/hooks/src/engine/plugin_fingerprint.rs`），不只是 `hooks.json`：插件目录里任何文件变化（含 SKILL.md）都要用户重新信任，所以插件目录要少改，安装说明写明更新后可能要重新信任。
-- 安装说明另写「人怎么看、怎么改」：看用 `almanac export`（第 4 章）；记东西就对智能体说「记住 X」；直接在终端操作时，给出 `ALMANAC_WRITER=human almanac record --json -`（heredoc 传参）与 `ALMANAC_WRITER=human almanac retract --json '{"memory":"mem_…","reason":"…"}'` 两个示例。不提供 `remember` / `forget` 之类的便捷命令。
+- 安装说明另写「人怎么看、怎么改」：看用 `almanac export`（第 4 章）；记东西就对智能体说「记住 X」；直接在终端操作时，给出 `ALMANAC_WRITER=human almanac record --json -` 与 `ALMANAC_WRITER=human almanac retract --json -` 两个 heredoc 传参示例。不提供 `remember` / `forget` 之类的便捷命令。
 - Pi 的 git 来源不能指定子目录，一个仓库只能是一个包，所以用根目录的 `package.json`：
 
   ```json
@@ -167,7 +167,7 @@ DSH 包内 `dsh/skills/almanac/SKILL.md` 是逐字节副本：npm 打包不能�
 
 SKILL.md 必须讲清：
 
-1. **怎么调用**：`almanac <tool> --json '<参数>'`，长参数用 `--json -` 加 heredoc；工具清单与要点（第 3 章）。
+1. **怎么调用**：`almanac <tool> --json -` 加 heredoc 从 stdin 传参；工具清单与要点（第 3 章）。
 2. **何时检索**：动手前、用户提到过去的约定或偏好时，先 `search`；没命中就看 `matched_terms` 换词再搜；需要证据或历史时用 `get` 沿 id 追溯。
 3. **何时写入**：倾向不写，只记以后还会用到、有证据支撑的论断；一条记忆只写一个论断。
 4. **怎么写对**：证据是一小段原文摘录；用户说「记住 X」时这句话本身就是证据；对话证据只收用户说的话，用户确认智能体的提议时，摘录先写一行 `> 智能体：…` 再写用户原话；认知状态可省略（证据全是对话时默认用户陈述，否则默认推断），自己观察到的显式写 `observed`；项目外的文件按 `command` 记录。

@@ -9,17 +9,15 @@ almanac 存的是**回忆资料**：每条记忆是一个论断，引用支撑�
 
 ## 调用
 
-```bash
-almanac <工具> --json '<参数 JSON>'
-```
-
-参数含引号、中文或多行时用 `--json -` 加 heredoc：
+参数一律用 heredoc 从 stdin 传：
 
 ```bash
-almanac record --json - <<'EOF'
+almanac <工具> --json - <<'EOF'
 { ... }
 EOF
 ```
+
+不要写成内联的 `--json '{...}'`：参数里有单引号时，命令会在到达 almanac 之前就被 shell 截断。
 
 成功时 stdout 是响应 JSON、退出码 0；失败时 stdout 是 `{"error":{"code","message","hint"}}`、退出码 1，按 `hint` 改了再试。每个工具都接受可选的 `project`（一个路径），省略时用当前工作目录所在的项目。
 
@@ -45,7 +43,9 @@ EOF
 - 动手前，以及用户提到过去的约定、偏好、「上次」「之前说过」时，先 `search`：
 
   ```bash
-  almanac search --json '{"query":"构建命令"}'
+almanac search --json - <<'EOF'
+{"query":"构建命令"}
+EOF
   ```
 
 - 没命中或命中不准：看 `matched_terms` 哪些词起了作用，换同义词、更短的词再搜。
@@ -98,13 +98,17 @@ EOF
 - **本就错了或不该记**：`retract`，写明原因。
 
   ```bash
-  almanac retract --json '{"memory":"mem_…","reason":"用户更正：不是 4 空格而是 2 空格"}'
+almanac retract --json - <<'EOF'
+{"memory":"mem_…","reason":"用户更正：不是 4 空格而是 2 空格"}
+EOF
   ```
 
 - `DUPLICATE_TEXT`：已有一条正文相同的生效记忆，改用 `corroborate` 给它附证：
 
   ```bash
-  almanac corroborate --json '{"memory":"mem_…","evidence":[{"excerpt":"…","source":{"type":"conversation"}}]}'
+almanac corroborate --json - <<'EOF'
+{"memory":"mem_…","evidence":[{"excerpt":"…","source":{"type":"conversation"}}]}
+EOF
   ```
 
 - `NOT_ACTIVE`：要取代或撤回的记忆已被取代。沿 `superseded_by` 用 `get` 找到最新的生效后继，对它操作。
