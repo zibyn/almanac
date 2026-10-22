@@ -1,6 +1,6 @@
 # 9 接入
 
-almanac 以宿主原生插件接入 Claude Code（CC）、Codex、Pi。默认的接入面是 **CLI + SKILL.md**：上下文开销小，三家都能用 shell 工具调用。会话开始注入与写入提醒是默认组件；MCP stdio 是可选增强，只给手抄配置。
+almanac 以宿主原生插件接入 Claude Code（CC）、Codex、DeepSeek Harness（DSH）、Pi。默认的接入面是 **CLI + SKILL.md**：上下文开销小，四家都能用 shell 工具调用。会话开始注入与写入提醒是默认组件；MCP stdio 是可选增强，只给手抄配置。
 
 ## 二进制
 
@@ -20,12 +20,18 @@ plugins/almanac/
   hooks/hooks.json                   会话开始注入与写入提醒（CC 与 Codex）
 pi/almanac.ts                        Pi 扩展（同上）；放在插件目录外，改它不让 Codex 重新信任
 package.json                         只为 Pi：仅有 "pi" 键
+dsh/
+  package.json                       DSH bundle：dsh.bundle.patch、engines.dsh、peer 依赖
+  cordis.patch.yml                   插入 almanac 插件行
+  index.js                           Cordis 插件：skill provider、注入、提醒
+  lib.js                             可单测的纯逻辑（注入来源、reason 解析、续跑保护）
+  skills/almanac/SKILL.md            与共享副本逐字节一致，测试守住
 ```
 
 - 不用符号链接：Codex 安装时会丢弃符号链接。
 - 「CC 与 Codex 共用一个插件目录」已按源码确认（`openai/codex@3f31c0a`）：Codex 依次找 `plugin.json`、`.codex-plugin/plugin.json`、`.claude-plugin/plugin.json`，marketplace 也读 `.claude-plugin/marketplace.json`，默认读 `skills/` 与 `hooks/hooks.json`；尚待真实宿主端到端实测。不行时的回退方案：另建 `.codex-plugin` 目录并复制一份 SKILL.md，加 CI 检查两份内容一致。
 - 插件里只有 SKILL.md、会话开始注入与写入提醒，不含 MCP 配置。
-- CC 按 `plugin.json` 的 `version` 判断插件是否有更新：插件目录有改动时须递增版本号，否则已安装的用户停在旧版。版本策略：`plugin.json` 的 `version` 始终等于 crate 版本，每次发布一起递增（测试守住）。
+- CC 按 `plugin.json` 的 `version` 判断插件是否有更新：插件目录有改动时须递增版本号，否则已安装的用户停在旧版。版本策略：`plugin.json` 与 `dsh/package.json` 的 `version` 始终等于 crate 版本，每次发布一起递增（测试守住）。
 
 ### 安装
 
@@ -33,6 +39,7 @@ package.json                         只为 Pi：仅有 "pi" 键
 |---|---|
 | CC | `claude plugin install almanac --marketplace zibyn/almanac` |
 | Codex | `codex plugin marketplace add zibyn/almanac`，然后 `codex plugin add almanac@almanac` |
+| DSH | `dsh plugin --profile web add @zibyn/dsh-almanac` |
 | Pi | `pi install git:github.com/zibyn/almanac` |
 
 - Codex：装完后要到 `/hooks` 信任 almanac 的 `SessionStart` 与 `Stop` hook，安装说明里写明，不做绕过。没有信任时，只是少了会话开始注入或写入提醒。Codex 的信任钉住的是整个插件目录的内容哈希（`codex-rs/hooks/src/engine/plugin_fingerprint.rs`），不只是 `hooks.json`：插件目录里任何文件变化（含 SKILL.md）都要用户重新信任，所以插件目录要少改，安装说明写明更新后可能要重新信任。
@@ -43,9 +50,12 @@ package.json                         只为 Pi：仅有 "pi" 键
   { "pi": { "skills": ["./plugins/almanac/skills"], "extensions": ["./pi/almanac.ts"] } }
   ```
 
+- DSH：`dsh plugin` 把参数转发给 profile 目录里的 pnpm，`pnpm` 必须在 `PATH` 上。装的是 bundle，声明了 `dsh.bundle` 的依赖会被自动并入 `dsh.profile.bundles`。没有 npm 发布时可用 git 备用：`dsh plugin --profile web add github:zibyn/almanac#path:/dsh`。插件不经过 DSH 的 hook 桥，没有额外的信任或 `/hooks` 步骤。
+- DSH 处于 developer preview。`package.json` 的 `engines.dsh` 与 peer 依赖写成已测试的小版本范围（当前 `>=0.2.1-rc.2 <0.3.0`）；实测过新区间后再放宽，不要用开放上界。
+
 ## 会话开始注入
 
-三段配置调用同一条 `almanac context`（第 4 章）：只读、永不阻塞，项目按通用规则确定（`CLAUDE_PROJECT_DIR` → 当前工作目录）。这段注入不写入，所以不需要 Writer。
+四段配置调用同一条 `almanac context`（第 4 章）：只读、永不阻塞，项目按通用规则确定（`CLAUDE_PROJECT_DIR` → 当前工作目录）。这段注入不写入，所以不需要 Writer。
 
 ### CC 与 Codex：`hooks/hooks.json`
 
@@ -111,20 +121,32 @@ export default function (pi: ExtensionAPI) {
 - 已按 Pi 1.3.0（`earendil-works/pi@16f5f0a`）复核：`agent_before_settle` 返回 `{ entries, continue }`、`ctx.sessionManager.getSessionId()` 如上。`pi.exec` 不能传 stdin（子进程 stdin 固定为 ignore），所以 `remind` 用 `node:child_process` 的 `spawn` 写 stdin（上面的 `runWithStdin`）；实现见 `pi/almanac.ts`。
 - `agent_before_settle` 在中断、出错时也触发（`event.outcome` 为 `aborted` / `error`），只在 `completed` 时调 `remind`，与「用户中断时 Stop 不触发」对应。
 
+### DSH：`dsh/index.js`
+
+DSH 没有 CC 那样的插件目录 hook 发现；官方 `@deepseek-ai/dsh-hooks-claude-code` 桥是 experimental，且把 `SessionStart` 当 detached 运行，可能错过第一个请求。因此用原生 Cordis 插件：
+
+- `agent/created` 是 serial 且被 await 的，在 `startup|clear|compact` 时 spawn `almanac context`，再 `agent.inject(...)`，可靠地赶在第一轮之前。
+- `resume` 不注入；`session.header.origin === "subagent"` 的子智能体不注入。
+- 子进程 cwd 取 `ctx.workingDirectory.ensure(agent, signal)`，项目仍按通用规则解析。
+- 5 秒超时；spawn 失败、超时、非零退出都当作无输出，永不阻塞会话。
+- SKILL.md 由 `ctx.skills.registerProvider` 随包提供，用户无需另装 skill 文件。
+
 ## 写入提醒
 
 [写入提醒](../../GLOSSARY.md)由 `almanac remind`（第 4 章）实现：计数、间隔、文案都在二进制里，以后调整不改插件目录，Codex 用户无需重新信任。
 
-- **只挂 Stop**：CC、Codex 的 `Stop`，Pi 的 `agent_before_settle`。这是三家唯一能让模型接着行动的收尾点：`PreCompact` 的输出到不了模型，`SessionEnd` / `session_shutdown` 时模型已不能行动。
+- **只挂 Stop**：CC、Codex 的 `Stop`，DSH 的 `agent/turn-stopping`，Pi 的 `agent_before_settle`。这是四家唯一能让模型接着行动的收尾点：`PreCompact` 的输出到不了模型，`SessionEnd` / `session_shutdown` 时模型已不能行动。
 - Stop 在主智能体每轮回复结束都触发，所以由 `remind` 按轮计数，每满 N 轮（默认 15）才提醒一次。
-- 不挂 `SubagentStop`：只提醒主智能体。用户中断时 Stop 不触发，不补提醒。
-- 续跑防循环：CC / Codex 的 `stop_hook_active` 为 true 时 `remind` 不提醒；Pi 扩展的续跑由提醒本身引起，下一次 settle 只是计数加一，不会连续提醒。
-- Codex 把 `reason` 作为一条新的用户消息交给模型；CC 作为续跑原因。文案要求智能体不要回复提醒本身。
+- 不挂 `SubagentStop`：只提醒主智能体；DSH 插件显式跳过 `origin === "subagent"` 的会话。用户中断时 Stop 不触发，不补提醒。
+- 续跑防循环：CC / Codex 的 `stop_hook_active` 为 true 时 `remind` 不提醒；DSH 插件按 session 记录“上一轮是我们 steer 的”，下一轮把 `stop_hook_active` 传 true 后清除，`remind_every = 1` 也不会无限续跑；Pi 扩展的续跑由提醒本身引起，下一次 settle 只是计数加一，不会连续提醒。
+- Codex 把 `reason` 作为一条新的用户消息交给模型；CC 作为续跑原因；DSH 用 `agent.steer` 交回模型。文案要求智能体不要回复提醒本身。
 - 关闭：记忆库目录下 `config.toml` 写 `remind_every = 0`。
 
 ## SKILL.md
 
-全仓唯一一份，路径 `plugins/almanac/skills/almanac/SKILL.md`，遵循 Agent Skills 标准。它是智能体使用 almanac 的唯一说明来源：`context` 的输出与工具描述都不重复用法。
+全仓唯一一份权威副本，路径 `plugins/almanac/skills/almanac/SKILL.md`，遵循 Agent Skills 标准。它是智能体使用 almanac 的唯一说明来源：`context` 的输出与工具描述都不重复用法。
+
+DSH 包内 `dsh/skills/almanac/SKILL.md` 是逐字节副本：npm 打包不能引用包目录之外的文件，而 DSH 需要包自带 skill 才能一条命令装齐。两份内容由 `tests/plugin.rs` 守住，改一处必须同步另一处。
 
 SKILL.md 必须讲清：
 
@@ -184,7 +206,7 @@ env = { ALMANAC_WRITER = "codex" }
 | 序 | 条件 | `name` |
 |---|---|---|
 | 1 | `ALMANAC_WRITER` 去掉首尾空白后非空且不为 `unknown` | 它的值 |
-| 2 | 下列会话变量**恰好命中一家**：`CLAUDE_CODE_SESSION_ID` → `claude-code`；`CODEX_THREAD_ID` 或 `CODEX_SESSION_ID` → `codex`；`PI_SESSION_ID` → `pi` | 对应宿主 |
+| 2 | 下列会话变量**恰好命中一家**：`CLAUDE_CODE_SESSION_ID` → `claude-code`；`CODEX_THREAD_ID` 或 `CODEX_SESSION_ID` → `codex`；`DSH_SESSION_ID` → `deepseek-harness`；`PI_SESSION_ID` → `pi` | 对应宿主 |
 | 3 | 第 2 级一家都没命中，且 `PI_CODING_AGENT=true` | `pi` |
 | 4 | 以上都不成立，或第 2 级命中多家（宿主嵌套） | `NO_WRITER` |
 
@@ -204,18 +226,19 @@ env = { ALMANAC_WRITER = "codex" }
 
 ### `session` 与 `model`
 
-`name` 为 `claude-code`、`codex`、`pi` 之一，且环境里有该宿主的变量时附上：
+`name` 为 `claude-code`、`codex`、`deepseek-harness`、`pi` 之一，且环境里有该宿主的变量时附上：
 
 | `name` | `session` | `model` |
 |---|---|---|
 | `claude-code` | `CLAUDE_CODE_SESSION_ID` | — |
 | `codex` | `CODEX_THREAD_ID`，没有则 `CODEX_SESSION_ID` | — |
+| `deepseek-harness` | `DSH_SESSION_ID` | — |
 | `pi` | `PI_SESSION_ID` | `PI_PROVIDER/PI_MODEL` |
 
 - 环境变量为空（或只有空白）视为未设置，会话变量与 `PI_PROVIDER`、`PI_MODEL` 都如此。
 - `model` 只在 `PI_PROVIDER` 与 `PI_MODEL` 都设置时附上。
 
-宿主嵌套时自报属实，这些变量就是最内层宿主自己的：内层宿主会覆盖同名变量，Pi 还会先清掉继承来的 `PI_*`。
+宿主嵌套时自报属实，这些变量就是最内层宿主自己的：内层宿主会覆盖同名变量；Pi 会先清掉继承来的 `PI_*`，DSH 会先清掉继承来的 `DSH_*`。
 
 ### 必须显式设置 `ALMANAC_WRITER` 的路径
 
@@ -223,6 +246,7 @@ env = { ALMANAC_WRITER = "codex" }
 |---|---|---|---|
 | CC | 可推断 | 可推断 | 手抄配置已设 |
 | Codex | 可推断 | 须设（hook 环境里没有会话变量） | 手抄配置已设 |
+| DSH | 可推断 | 插件只读；若插件内产生写入须显式传 | 未调研 |
 | Pi | 可推断 | 须由扩展传入 | 手抄配置已设 |
 
-插件里的会话开始注入只读、写入提醒不写日志，不受此影响。宿主侧的环境变量与变量名以各宿主的版本为准，实现前按版本复核。
+插件里的会话开始注入只读、写入提醒不写日志，不受此影响。DSH 插件自己 spawn 的子进程不经过 shell-env，拿不到 `DSH_SESSION_ID`；目前两条命令都不写，所以不需要 Writer。宿主侧的环境变量与变量名以各宿主的版本为准，实现前按版本复核。

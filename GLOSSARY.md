@@ -37,7 +37,7 @@ _Avoid_: namespace、context
 _Avoid_: 合并、重命名、rename
 
 **Writer（写入方）**:
-执行某次写入的智能体或人的身份（如 Codex、Claude Code、Pi、human），是来源信息的一部分。
+执行某次写入的智能体或人的身份（如 Codex、Claude Code、DeepSeek Harness、Pi、human），是来源信息的一部分。
 _Avoid_: client、user、author
 
 **Provenance（来源）**:

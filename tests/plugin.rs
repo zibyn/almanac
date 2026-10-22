@@ -90,7 +90,43 @@ fn assert_no_symlinks(dir: &Path) {
 }
 
 #[test]
+fn dsh_package_is_a_bundle_and_versions_with_the_crate() {
+    let p = read_json("dsh/package.json");
+    assert_eq!(p["name"], "@zibyn/dsh-almanac");
+    assert_eq!(p["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(p["main"], "index.js");
+    assert_eq!(p["dsh"]["bundle"]["patch"], "./cordis.patch.yml");
+    assert!(p["engines"]["dsh"].is_string());
+    for key in ["@deepseek-ai/dsh-llm", "@deepseek-ai/dsh-skill"] {
+        assert!(p["peerDependencies"][key].is_string(), "{key}");
+    }
+    for path in [
+        "dsh/index.js",
+        "dsh/lib.js",
+        "dsh/cordis.patch.yml",
+        "dsh/skills/almanac/SKILL.md",
+    ] {
+        assert!(root().join(path).exists(), "{path}");
+    }
+}
+
+#[test]
+fn dsh_patch_inserts_the_package() {
+    let patch = std::fs::read_to_string(root().join("dsh/cordis.patch.yml")).unwrap();
+    assert!(patch.contains("- id: almanac"));
+    assert!(patch.contains("name: '@zibyn/dsh-almanac'"));
+}
+
+#[test]
+fn dsh_skill_is_identical_to_the_shared_one() {
+    let shared = std::fs::read(root().join("plugins/almanac/skills/almanac/SKILL.md")).unwrap();
+    let dsh = std::fs::read(root().join("dsh/skills/almanac/SKILL.md")).unwrap();
+    assert_eq!(shared, dsh, "两份 SKILL.md 必须一致");
+}
+
+#[test]
 fn plugin_tree_has_no_symlinks() {
     assert_no_symlinks(&root().join("plugins"));
     assert_no_symlinks(&root().join(".claude-plugin"));
+    assert_no_symlinks(&root().join("dsh"));
 }

@@ -1,0 +1,34 @@
+{
+  "name": "@zibyn/dsh-almanac",
+  "version": "0.1.0",
+  "description": "almanac：带证据的智能体长期记忆（DeepSeek Harness 插件）",
+  "keywords": ["almanac", "memory", "dsh-plugin", "deepseek-harness"],
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./lib.js": "./lib.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "lib.js", "cordis.patch.yml", "skills/", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zibyn/almanac.git",
+    "directory": "dsh"
+  },
+  "homepage": "https://github.com/zibyn/almanac#readme",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-skill": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

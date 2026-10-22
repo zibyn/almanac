@@ -5,9 +5,10 @@ use crate::model::Writer;
 use std::sync::OnceLock;
 
 /// Host name → its session variables, in priority order.
-const HOSTS: [(&str, &[&str]); 3] = [
+const HOSTS: [(&str, &[&str]); 4] = [
     ("claude-code", &["CLAUDE_CODE_SESSION_ID"]),
     ("codex", &["CODEX_THREAD_ID", "CODEX_SESSION_ID"]),
+    ("deepseek-harness", &["DSH_SESSION_ID"]),
     ("pi", &["PI_SESSION_ID"]),
 ];
 

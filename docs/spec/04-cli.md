@@ -27,7 +27,7 @@ almanac mcp
 almanac context [--max-chars <N>]
 ```
 
-输出会话开始时注入给智能体的记忆，由宿主的 `SessionStart` hook 或 Pi 扩展调用（第 9 章）。项目按第 1 章「定位项目路径」的通用规则确定（`CLAUDE_PROJECT_DIR` → 当前工作目录）。
+输出会话开始时注入给智能体的记忆，由宿主的会话开始 hook 或扩展调用（第 9 章）。项目按第 1 章「定位项目路径」的通用规则确定（`CLAUDE_PROJECT_DIR` → 当前工作目录）。
 
 ### 内容
 
@@ -159,7 +159,7 @@ almanac export [--all]
 almanac remind
 ```
 
-[写入提醒（Write Reminder）](../../GLOSSARY.md)：由宿主的 Stop hook（Pi 为扩展）在主智能体每轮回复结束时调用，每满 N 轮输出一次提醒，促使智能体回顾本次会话并 `record`。不调 LLM，不读对话记录，不写日志，所以不需要 Writer。
+[写入提醒（Write Reminder）](../../GLOSSARY.md)：由宿主的 Stop hook / turn-stopping（Pi 为扩展）在主智能体每轮回复结束时调用，每满 N 轮输出一次提醒，促使智能体回顾本次会话并 `record`。不调 LLM，不读对话记录，不写日志，所以不需要 Writer。
 
 ### 输入与计数
 

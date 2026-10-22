@@ -1,0 +1,3 @@
+- insert:
+    - id: almanac
+      name: '@zibyn/dsh-almanac'

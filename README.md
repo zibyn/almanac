@@ -1,7 +1,7 @@
 # almanac
 Memories change. Evidence remains.
 
-为多种智能体（Claude Code、Codex、Pi）提供外部长期记忆：每条记忆都引用支撑它的证据，记忆会变，证据永存。规格见 [`docs/spec/`](docs/spec/README.md)。
+为多种智能体（Claude Code、Codex、DeepSeek Harness、Pi）提供外部长期记忆：每条记忆都引用支撑它的证据，记忆会变，证据永存。规格见 [`docs/spec/`](docs/spec/README.md)。
 
 ## 安装
 
@@ -23,7 +23,10 @@ cargo install --git https://github.com/zibyn/almanac
 |---|---|
 | Claude Code | `claude plugin install almanac --marketplace zibyn/almanac` |
 | Codex | `codex plugin marketplace add zibyn/almanac`，然后 `codex plugin add almanac@almanac` |
+| DeepSeek Harness | `dsh plugin --profile web add @zibyn/dsh-almanac` |
 | Pi | `pi install git:github.com/zibyn/almanac` |
+
+DSH 的 `dsh plugin` 需要 `pnpm` 在 `PATH` 上；npm 包尚未发布时可用 git 安装：`dsh plugin --profile web add github:zibyn/almanac#path:/dsh`。DSH 插件不经过 hook 桥，没有信任步骤。
 
 **Codex 用户还要信任两个 hook。** 装完后在 Codex 里运行 `/hooks`，信任 almanac 的 `SessionStart` 与 `Stop` hook。Codex 的信任绑定整个插件目录的内容哈希，所以**每次升级插件后 Codex 都会要求重新信任**：到 `/hooks` 再信任一次，否则注入与提醒不再出现。没有信任时，只是少了会话开始注入或写入提醒，智能体照样能用 almanac。
 

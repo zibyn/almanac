@@ -79,6 +79,35 @@ fn pi_session_attaches_model() {
 }
 
 #[test]
+fn deepseek_harness_session_fills_writer_without_model() {
+    let a = host().env("DSH_SESSION_ID", "d1");
+    let (w, src) = write(&a);
+    assert_eq!(w, json!({"name": "deepseek-harness", "session": "d1"}));
+    assert_eq!(
+        src,
+        json!({"type": "conversation", "host": "deepseek-harness", "session": "d1"})
+    );
+}
+
+#[test]
+fn deepseek_harness_nested_with_another_host_is_no_writer() {
+    let a = host()
+        .env("DSH_SESSION_ID", "d1")
+        .env("CLAUDE_CODE_SESSION_ID", "s1");
+    let e = a
+        .tool(
+            "record",
+            json!({"evidence": [{"excerpt": "x", "source": {"type": "conversation"}}]}),
+        )
+        .err("NO_WRITER");
+    let text = format!("{} {}", e["message"], e["hint"]);
+    assert!(
+        text.contains("deepseek-harness") && text.contains("claude-code"),
+        "{text}"
+    );
+}
+
+#[test]
 fn pi_coding_agent_is_the_fallback() {
     let a = host().env("PI_CODING_AGENT", "true");
     assert_eq!(write(&a).0, json!({"name": "pi"}));

@@ -141,7 +141,7 @@ EOF
 
 | 错误码 | 处理 |
 |---|---|
-| `NO_WRITER` | 在命令前加 `ALMANAC_WRITER=<你的宿主名>` 重试，如 `ALMANAC_WRITER=codex almanac record --json -`（宿主名：`claude-code`、`codex`、`pi`，其他宿主用自己的名字，不写 `unknown`）。只在收到它时这样做，平时不设置 |
+| `NO_WRITER` | 在命令前加 `ALMANAC_WRITER=<你的宿主名>` 重试，如 `ALMANAC_WRITER=codex almanac record --json -`（宿主名：`claude-code`、`codex`、`deepseek-harness`、`pi`，其他宿主用自己的名字，不写 `unknown`）。只在收到它时这样做，平时不设置 |
 | `SECRET_DETECTED` | 密钥、token 不进记忆库。对话、命令证据与正文把密钥换成 `<redacted>` 重试；`file` 证据换一段不含密钥的更窄摘录；密钥本身就是要记的内容时，不记 |
 | `DUPLICATE_TEXT` | 改用 `corroborate`，见「更新与遗忘」 |
 | `NOT_ACTIVE` | 沿取代链找最新的后继，见「更新与遗忘」 |

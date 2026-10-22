@@ -5,7 +5,7 @@
 almanac 是给智能体用的外部长期记忆库，一人一库。它把[证据（Evidence）](../../GLOSSARY.md)和从证据中提炼出的[记忆（Memory）](../../GLOSSARY.md)分开存放：记忆会变，证据永存（除非人明确[清除（Purge）](../../GLOSSARY.md)）。
 
 - **事实来源**：一份只追加的事件日志；记忆的状态、索引、缓存都由日志推导或可删重建（[ADR 0002](../adr/0002-event-log-is-the-source-of-truth.md)）。
-- **接入**：单个 Rust 二进制，同时提供 CLI 与 MCP stdio，经宿主原生插件接入 Codex、Claude Code、Pi 等智能体（第 9 章）。
+- **接入**：单个 Rust 二进制，同时提供 CLI 与 MCP stdio，经宿主原生插件接入 Codex、Claude Code、DeepSeek Harness、Pi 等智能体（第 9 章）。
 - **部署**：v0.1 只在本机内嵌运行。Server 模式与多设备接入推迟到 v0.2；写入方生成 id 与事务 id，为它留了路。
 - **agentic search**：almanac 只提供确定性、可解释的查询原语：中文分词后的词法检索、结构化过滤、记忆→证据与取代链的跳转。判断哪些记忆相关、是否矛盾、该不该取代，由智能体多轮检索后完成。核心不调用 LLM，不用 embedding（[ADR 0003](../adr/0003-no-llm-or-embeddings-in-the-core.md)）。
 - **轻量**：不依赖外部数据库、向量库或图数据库；存储为记忆的特性定制（第 2 章）。
